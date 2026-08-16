@@ -1,0 +1,16 @@
+{
+  "name": "bbb-diario-leitura",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Ponto de entrada usado só pelo deploy na nuvem (Render). Pro dia a dia local, use os arquivos .command na pasta.",
+  "scripts": {
+    "start": "node server/server.js"
+  },
+  "dependencies": {
+    "@libsql/client": "^0.14.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
