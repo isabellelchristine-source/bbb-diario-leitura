@@ -477,6 +477,7 @@ const server = http.createServer(async (req, res) => {
 
     // ---------- FEED (home) ----------
     if (pathname === '/api/feed' && method === 'GET') {
+      const viewer = await optionalUser(req);
       const users = await db.all('SELECT * FROM users ORDER BY created_at ASC');
       const reading = await Promise.all(users.map(async (u) => ({ user: publicUser(u), books: await currentlyReading(u.id) })));
       const recentJournalRows = await db.all('SELECT * FROM journal_entries ORDER BY created_at DESC LIMIT 15');
@@ -487,7 +488,15 @@ const server = http.createServer(async (req, res) => {
         const reactions = await db.all('SELECT * FROM reactions WHERE journal_id = ?', [r.id]);
         return { ...r, book, user: publicUser(u), reactions };
       }));
-      const recentlyFinishedRows = await db.all("SELECT * FROM user_books WHERE status = 'lido' ORDER BY finish_date DESC LIMIT 10");
+      // "Últimos livros finalizados" mostra prioritariamente os da amiga — ver o que
+      // você mesma já sabe que leu é menos interessante do que ver a novidade dela.
+      let recentlyFinishedRows = await db.all("SELECT * FROM user_books WHERE status = 'lido' ORDER BY finish_date DESC LIMIT 20");
+      if (viewer) {
+        const friendRows = recentlyFinishedRows.filter((r) => r.user_id !== viewer.id);
+        recentlyFinishedRows = (friendRows.length ? friendRows : recentlyFinishedRows).slice(0, 10);
+      } else {
+        recentlyFinishedRows = recentlyFinishedRows.slice(0, 10);
+      }
       const recentlyFinished = await Promise.all(recentlyFinishedRows.map(async (r) => {
         const book = await db.get('SELECT * FROM books WHERE id = ?', [r.book_id]);
         const u = users.find((x) => x.id === r.user_id);
