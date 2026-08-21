@@ -1,8 +1,11 @@
 import { api } from '../api.js';
-import { bookCoverHtml, progressHtml, starsHtml, escapeHtml, formatDate, timeAgo, toast, avatarHtml, letterHtml, commentsHtml } from '../components.js';
+import { bookCoverHtml, progressHtml, starsHtml, escapeHtml, formatDate, timeAgo, toast, avatarHtml, letterHtml, commentsHtml, journalActionsHtml } from '../components.js';
 import { state, STATUS_META } from '../state.js';
 import { navigate } from '../router.js';
-import { openUpdateProgressModal, openJournalModal, openReviewModal, openAddCoverModal, openEditDateModal, openEditBookModal, attachCommentHandlers } from '../actions.js';
+import {
+  openUpdateProgressModal, openJournalModal, openReviewModal, openAddCoverModal, openEditDateModal, openEditBookModal,
+  attachCommentHandlers, attachJournalActionHandlers, deleteReview,
+} from '../actions.js';
 
 function spoilerBlocked(entry, myPage, iAmReadingIt) {
   if (!iAmReadingIt) return false;
@@ -91,7 +94,8 @@ export async function renderBook(view, bookId) {
         </div>
         <hr class="divider"/>
         <div class="row-between"><span class="muted">Início</span><button class="link-btn" data-edit-date="start_date">${formatDate(myUb.start_date)} ✏️</button></div>
-        <div class="row-between"><span class="muted">Término</span><button class="link-btn" data-edit-date="finish_date">${formatDate(myUb.finish_date)} ✏️</button></div>
+        <div class="row-between"><span class="muted">Término</span><button class="link-btn" data-edit-date="finish_date">${formatDate(myUb.finish_date, myUb.finish_date_precision)} ✏️</button></div>
+        ${myUb.finish_date_precision === 'year' ? `<p class="muted mt-0" style="font-size:0.75rem">Essa data veio do histórico antigo — só sabemos o ano certo. Toque no ✏️ pra colocar o dia exato, se quiser.</p>` : ''}
         ${myUb.status === 'lido' ? `
           <hr class="divider"/>
           <div class="row-between mb-0"><span class="muted">Sua nota</span>${starsHtml(myUb.rating)}</div>
@@ -101,7 +105,10 @@ export async function renderBook(view, bookId) {
         <button class="link-btn" id="remove-book" style="color:#D97878">Remover da estante</button>
       </div>
       ${myUb.status === 'lido' && myUb.review_text ? `
-        <div class="section-title">💌 Sua carta <span class="letter-visibility-badge ${myUb.review_public ? 'pill sage' : 'pill'}">${myUb.review_public ? '🌍 pública' : '🔒 privada'}</span></div>
+        <div class="row-between">
+          <div class="section-title mb-0">💌 Sua carta <span class="letter-visibility-badge ${myUb.review_public ? 'pill sage' : 'pill'}">${myUb.review_public ? '🌍 pública' : '🔒 privada'}</span></div>
+          <button class="link-btn" id="delete-review" style="color:#D97878;font-size:0.8rem">🗑️ Excluir</button>
+        </div>
         ${letterHtml(myUb, state.currentUser.name, friend ? friend.name : 'você')}
       ` : ''}
     ` : ''}
@@ -117,9 +124,9 @@ export async function renderBook(view, bookId) {
       ${myJournal.length ? myJournal.map((e) => `
         <div class="journal-entry">
           <div class="journal-bubble">
-            <div class="journal-meta"><span class="journal-page-badge">pág. ${e.page}</span> · ${timeAgo(e.created_at)}</div>
+            <div class="journal-meta"><span class="journal-page-badge">pág. ${e.page}</span> · ${timeAgo(e.created_at)}${journalActionsHtml(e, state.currentUser.id)}</div>
             <div class="journal-text">${e.emoji ? e.emoji + ' ' : ''}${escapeHtml(e.text)}</div>
-            ${commentsHtml(e)}
+            ${commentsHtml(e, state.currentUser.id)}
           </div>
         </div>`).join('') : `<p class="muted mt-0 mb-0">Nenhuma anotação ainda.</p>`}
     </div>` : ''}
@@ -137,7 +144,7 @@ export async function renderBook(view, bookId) {
         return `<div class="journal-entry"><div class="journal-bubble">
           <div class="journal-meta"><span class="journal-page-badge">pág. ${e.page}</span> · ${timeAgo(e.created_at)}</div>
           <div class="journal-text">${e.emoji ? e.emoji + ' ' : ''}${escapeHtml(e.text)}</div>
-          ${commentsHtml(e)}
+          ${commentsHtml(e, state.currentUser.id)}
         </div></div>`;
       }).join('')}
     </div>` : ''}
@@ -203,11 +210,15 @@ export async function renderBook(view, bookId) {
       wrap.outerHTML = `<div class="journal-entry"><div class="journal-bubble">
           <div class="journal-meta"><span class="journal-page-badge">pág. ${entry.page}</span> · ${timeAgo(entry.created_at)}</div>
           <div class="journal-text">${entry.emoji ? entry.emoji + ' ' : ''}${escapeHtml(entry.text)}</div>
-          ${commentsHtml(entry)}
+          ${commentsHtml(entry, state.currentUser.id)}
         </div></div>`;
       attachCommentHandlers(view, () => renderBook(view, bookId));
     };
   });
 
+  const deleteReviewBtn = view.querySelector('#delete-review');
+  if (deleteReviewBtn) deleteReviewBtn.onclick = () => deleteReview(myUb, () => renderBook(view, bookId));
+
   attachCommentHandlers(view, () => renderBook(view, bookId));
+  attachJournalActionHandlers(view, myJournal, () => renderBook(view, bookId));
 }

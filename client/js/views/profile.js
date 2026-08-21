@@ -75,7 +75,7 @@ export async function renderProfile(view, username) {
         <div class="shelf-item" data-book="${ub.book_id}">
           ${bookCoverHtml(ub.book)}
           <div class="book-title">${escapeHtml(ub.book?.title || '')}</div>
-          <div class="muted" style="font-size:0.7rem">${formatDate(ub.finish_date)}</div>
+          <div class="muted" style="font-size:0.7rem">${formatDate(ub.finish_date, ub.finish_date_precision)}</div>
         </div>`).join('')}</div>` : `<p class="muted mt-0 mb-0">Ainda não terminou nenhum livro.</p>`}
     </div>
   `;

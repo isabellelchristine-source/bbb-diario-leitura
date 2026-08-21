@@ -1,8 +1,8 @@
 import { api } from '../api.js';
-import { avatarHtml, bookCoverHtml, shelfCoverHtml, progressHtml, timeAgo, escapeHtml, toast, commentsHtml } from '../components.js';
+import { avatarHtml, bookCoverHtml, shelfCoverHtml, progressHtml, timeAgo, escapeHtml, toast, commentsHtml, journalActionsHtml } from '../components.js';
 import { state } from '../state.js';
 import { navigate } from '../router.js';
-import { openUpdateProgressModal, openJournalModal, attachCommentHandlers } from '../actions.js';
+import { openUpdateProgressModal, openJournalModal, attachCommentHandlers, attachJournalActionHandlers } from '../actions.js';
 
 function spoilerBlocked(entry, myBookMap) {
   if (entry.user_id === state.currentUser.id) return false;
@@ -44,6 +44,7 @@ function journalEntryHtml(entry, myBookMap, revealed) {
           ${entry.book ? `· <span class="muted">${escapeHtml(entry.book.title)}</span>` : ''}
           · ${timeAgo(entry.created_at)}
           <span class="journal-page-badge">pág. ${entry.page || 0}</span>
+          ${isMine ? journalActionsHtml(entry, state.currentUser.id) : ''}
         </div>
         <div class="journal-text" data-open-book="${entry.book_id || entry.book?.id || ''}" style="cursor:pointer">${entry.emoji ? entry.emoji + ' ' : ''}${escapeHtml(entry.text)}</div>
         <div class="reaction-row" data-reactions>
@@ -53,7 +54,7 @@ function journalEntryHtml(entry, myBookMap, revealed) {
           }).join('')}
           <button class="reaction-chip" data-add-reaction="${entry.id}">+ 🙂</button>
         </div>
-        ${commentsHtml(entry)}
+        ${commentsHtml(entry, state.currentUser.id)}
       </div>
     </div>`;
 }
@@ -162,8 +163,13 @@ export async function renderHome(view) {
       const entry = feed.recent_journal.find((e) => e.id === btn.dataset.reveal);
       const wrap = btn.closest('.journal-entry');
       wrap.outerHTML = journalEntryHtml(entry, myBookMap, true);
+      view.querySelectorAll('[data-open-book]').forEach((el) => {
+        if (!el.dataset.openBook) return;
+        el.onclick = () => navigate(`/book/${el.dataset.openBook}`);
+      });
       attachReactionHandlers(view, feed);
       attachCommentHandlers(view, () => renderHome(view));
+      attachJournalActionHandlers(view, feed.recent_journal, () => renderHome(view));
     };
   });
   view.querySelectorAll('[data-open-book]').forEach((el) => {
@@ -172,6 +178,7 @@ export async function renderHome(view) {
   });
   attachReactionHandlers(view, feed);
   attachCommentHandlers(view, () => renderHome(view));
+  attachJournalActionHandlers(view, feed.recent_journal, () => renderHome(view));
 }
 
 function attachReactionHandlers(view, feed) {

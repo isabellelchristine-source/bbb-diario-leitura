@@ -1,15 +1,11 @@
 {
-  "name": "bookapp-server",
+  "name": "bbb-diario-leitura",
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Backend do app de leitura das duas amigas.",
-  "main": "server.js",
+  "description": "Ponto de entrada usado só pelo deploy na nuvem (Render). Pro dia a dia local, use os arquivos .command na pasta.",
   "scripts": {
-    "start": "node server.js",
-    "dev": "node --watch server.js",
-    "import-historico": "node import-historico.js",
-    "enrich-covers": "node enrich-covers.js"
+    "start": "node server/server.js"
   },
   "dependencies": {
     "@libsql/client": "^0.14.0"

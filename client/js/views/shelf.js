@@ -43,7 +43,7 @@ export async function renderShelf(view, statusFromQuery) {
           <div class="book-title">${escapeHtml(ub.book?.title || '')}</div>
           <div class="book-author">${escapeHtml(ub.book?.author || '')}</div>
           ${currentTab === 'lido' && ub.rating ? starsHtml(ub.rating) : ''}
-          ${currentTab === 'lido' ? `<div class="muted" style="font-size:0.7rem">${formatDate(ub.finish_date)}</div>` : ''}
+          ${currentTab === 'lido' ? `<div class="muted" style="font-size:0.7rem">${formatDate(ub.finish_date, ub.finish_date_precision)}</div>` : ''}
           ${currentTab === 'lendo' ? `<div class="muted" style="font-size:0.72rem">pág. ${ub.current_page}/${ub.book?.total_pages || '?'}</div>` : ''}
         </div>`).join('')}
     </div>` : `
