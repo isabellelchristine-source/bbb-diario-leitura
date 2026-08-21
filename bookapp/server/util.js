@@ -56,5 +56,5 @@ export function redactReview(ub, viewerId) {
   if (isOwner || ub.review_public === undefined || ub.review_public === null || ub.review_public) {
     return ub;
   }
-  return { ...ub, review_text: '', review_quote: '', review_page: null, review_hidden: true };
+  return { ...ub, review_text: '', review_quote: '', review_page: null, review_style: '', review_hidden: true };
 }

@@ -303,7 +303,7 @@ const server = http.createServer(async (req, res) => {
       if (!row) return sendJson(res, 404, { error: 'não encontrado' });
       if (row.user_id !== user.id) return sendJson(res, 403, { error: 'não é sua estante' });
       const body = await readBody(req);
-      const fields = ['status', 'current_page', 'start_date', 'finish_date', 'goal_date', 'rating', 'review_text', 'favorite', 'personal_comment', 'review_public', 'review_page', 'review_quote'];
+      const fields = ['status', 'current_page', 'start_date', 'finish_date', 'finish_date_precision', 'goal_date', 'rating', 'review_text', 'favorite', 'personal_comment', 'review_public', 'review_page', 'review_quote', 'review_style'];
       const updates = [];
       const values = [];
       for (const f of fields) {
@@ -315,6 +315,12 @@ const server = http.createServer(async (req, res) => {
       }
       if (body.status === 'lido' && body.finish_date === undefined) {
         updates.push('finish_date = ?'); values.push(nowIso());
+        if (body.finish_date_precision === undefined) { updates.push('finish_date_precision = ?'); values.push('day'); }
+      }
+      // Sempre que uma data de término de verdade é informada (pela usuária, editando manualmente),
+      // ela vale mais que qualquer estimativa de "só o ano" que possa ter vindo de uma importação antiga.
+      if (body.finish_date !== undefined && body.finish_date_precision === undefined) {
+        updates.push('finish_date_precision = ?'); values.push('day');
       }
       updates.push('updated_at = ?'); values.push(nowIso());
       values.push(row.id);
@@ -419,6 +425,18 @@ const server = http.createServer(async (req, res) => {
     }
 
     const commentMatch = pathname.match(/^\/api\/comments\/([^/]+)$/);
+    if (commentMatch && method === 'PATCH') {
+      const user = await requireAuth(req, res); if (!user) return;
+      const row = await db.get('SELECT * FROM comments WHERE id = ?', [commentMatch[1]]);
+      if (!row) return sendJson(res, 404, { error: 'não encontrado' });
+      if (row.user_id !== user.id) return sendJson(res, 403, { error: 'não é seu comentário' });
+      const body = await readBody(req);
+      if (!body.text || !body.text.trim()) return sendJson(res, 400, { error: 'texto obrigatório' });
+      await db.run('UPDATE comments SET text = ? WHERE id = ?', [body.text.trim(), row.id]);
+      const updated = await db.get('SELECT * FROM comments WHERE id = ?', [row.id]);
+      return sendJson(res, 200, { comment: { ...updated, user: publicUser(user) } });
+    }
+
     if (commentMatch && method === 'DELETE') {
       const user = await requireAuth(req, res); if (!user) return;
       const row = await db.get('SELECT * FROM comments WHERE id = ?', [commentMatch[1]]);

@@ -168,9 +168,28 @@ export async function initDb() {
   await ensureColumn('user_books', 'review_public', 'INTEGER DEFAULT 1');
   await ensureColumn('user_books', 'review_page', 'INTEGER');
   await ensureColumn('user_books', 'review_quote', "TEXT DEFAULT ''");
+  await ensureColumn('user_books', 'finish_date_precision', "TEXT DEFAULT 'day'");
+  await ensureColumn('user_books', 'review_style', "TEXT DEFAULT ''");
   await ensureColumn('users', 'last_seen_at', 'TEXT');
 
   await db.run('UPDATE users SET last_seen_at = ? WHERE last_seen_at IS NULL', [new Date().toISOString()]);
+
+  // Livros importados em lote (histórico antigo) só tinham o ANO certo de término, não o dia —
+  // por isso o import preenchia todo mundo com "15 de junho" só pra entrar nas contas de
+  // "lido este ano". Isso fazia dezenas de livros diferentes mostrarem a mesma data exata,
+  // o que parece um erro. Marcamos esses registros como precisão "year" pra mostrar só o ano
+  // (ex: "~2026") em vez de uma data falsa — quem quiser, ainda pode editar a data exata
+  // a qualquer momento pela página do livro.
+  //
+  // Usamos strftime (mês-dia) em vez de comparar a string exata, porque diferentes versões
+  // dos scripts de importação ao longo do tempo podem ter gravado o horário de um jeito
+  // ligeiramente diferente (com/sem milissegundos, etc.) — casar só "-06-15T12:00:00.000Z"
+  // deixava passar batido alguns registros que também eram desse mesmo import.
+  await db.run(
+    "UPDATE user_books SET finish_date_precision = 'year' " +
+    "WHERE finish_date IS NOT NULL AND strftime('%m-%d', finish_date) = '06-15' " +
+    "AND (finish_date_precision IS NULL OR finish_date_precision = 'day')",
+  );
 }
 
 export default db;

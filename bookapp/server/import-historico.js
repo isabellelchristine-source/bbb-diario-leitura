@@ -9,6 +9,7 @@
 
 import db, { initDb } from './db.js';
 import { hashPassword } from './auth.js';
+import { biaListReal } from './bia-lista-real.js';
 
 const nowIso = () => new Date().toISOString();
 function newId(prefix) {
@@ -104,70 +105,9 @@ const belleList = [
 ];
 
 // ---------------------------------------------------------------------------
-// Lista da Bia — livros já lidos, sem nota registrada
-// ---------------------------------------------------------------------------
-const biaList = [
-  'A ilha perdida', 'Amor pelos bichinhos', 'Dormindo fora',
-  'Diário de uma garota nada popular 2', 'Diário de uma garota nada popular 3',
-  'Diário de uma garota nada popular 4', 'Diário de uma garota nada popular 5',
-  'Caçadora de estrelas', 'A cinco passos de você', 'Céu sem estrelas',
-  'Todas as suas imperfeições', 'O pequeno príncipe', 'Para todos os garotos que já amei',
-  'Ps: Ainda amo você', 'Agora e para sempre Lara Jean', 'O fim em doses homeopáticas',
-  'A seleção', 'A elite', 'A escolha', 'Felizes para sempre', 'A herdeira', 'A coroa',
-  'Todo esse tempo', 'O invisível aos olhos', 'Cartas de amor aos mortos',
-  'Por lugares incríveis', 'Menina feita de estrelas', 'Mil beijos de garoto',
-  'A última carta de amor', 'Mr. Romance', 'É assim que acaba',
-  'Os sete maridos de Evelyn Hugo', 'Até o verão terminar', 'Verity',
-  'Não nasci para agradar', 'Clube do livro dos homens', 'Missão romance',
-  'Como eu era antes de você', 'Depois de você', 'Ainda sou eu', 'Perdida', 'Encontrada',
-  'Destinado', 'Cinquenta tons de cinza', 'Cinquenta tons de cinza mais escuro',
-  'Cinquenta tons de liberdade', 'Sempre teremos o verão', 'Grey', 'Mais escuro',
-  'Prometida', 'Desencantada', 'Indomada', '13 segundos', 'O verão que mudou minha vida',
-  'Sem você não é verão', 'Livre', 'A rainha vermelha', 'Professor feelgood',
-  'Novembro 9', 'Eu e esse meu coração', 'A razão do amor', 'As mil partes do meu coração',
-  'As coisas que nunca superamos', 'A biblioteca da meia-noite', 'Talvez um dia',
-  'Talvez agora', 'Dr. Love', 'Um caso perdido', 'Sem esperança',
-  'Em busca de Cinderela - Em busca da perfeição', 'Tarde demais', 'Meu Romeu',
-  'Amor entrelinhas', 'Espada de vidro', 'Como parar o tempo',
-  'Termos e condições para o amor', 'Estupidamente apaixonados', 'Absolutamente Romântico',
-  'Teto para dois', 'Se eu fica', 'Uma segunda chance', 'É assim que começa', 'A babá',
-  'Amor, teoricamente', 'Sr. Daniels', 'As coisas que guardamos em segredo',
-  'Três chances para o amor', 'Amor corrompido', 'Jogos do amor', 'Amor e ódio',
-  'O lado feio do amor', 'Lutando contra o luto', 'Oferta final para o amor',
-  'O corpo fala', 'Minha Julieta', 'Coração perverso', 'Histórias de Meu Romeu',
-  'O princípio do amor', 'Lance para o amor', 'Lance para a atração', 'Lance para a paixão',
-  'Faça um pedido', 'Eu pediria por você', 'Depois de vegas', 'Filha da máfia: O acordo',
-  'Incipit', 'Aluguei um bilionário', 'Vivendo com o inimigo', 'O noivo ideal',
-  'Sob o poder do passado', 'Proibida', 'Os segredos da mente milionária', 'Friendzone',
-  'Coragem', 'Tempestades do sul', 'O milagre da manhã para se tornar um milionário',
-  'Poesias para me sentir viva', 'Luzes do leste', 'Pai rico Pai pobre',
-  'Estrelas do norte', 'Mentiras do amor', 'As coisas que deixamos para trás',
-  'A hipótese do amor', 'Métrica', 'Pausa', 'Essa garota', 'Sem defeitos', 'Sem coração',
-  'Sem controle', 'Layla', 'O massacre da família Hope', 'Rei da ira', 'Pense de novo',
-  'Rei do orgulho', 'Rei da ganância', 'Rei da preguiça', 'Duas versões de você',
-  'Usada e grávida do chefe da máfia', 'Te protejo em segredo', 'Maneiras de te odiar',
-  'Collapse', 'Além das cicatrizes', 'Mr. Hockey', 'Até você ser minha',
-  'Antes que me deixe', 'Encontre-se se for capaz', 'Pole Position', 'Querido, vizinho',
-  'Feita pra mim', 'Minha melhor parte', 'A voz de Archer', 'Divinos rivais',
-  'A menina que roubava livros', 'O teorema Katherine', 'O conto da aia',
-  'O morro dos ventos uivantes', 'O que o sol faz com as flores', 'Outro jeito de usar a boca',
-  'Textos cruéis demais para serem lidos rapidamente',
-  'Textos cruéis demais para serem lidos rapidamente onde mora o amor',
-  'A princesa salva a si mesma neste livro', 'A bruxa não vai para a fogueira neste livro',
-  'A voz da sereia volta neste livro', 'Para todas as pessoas intensas',
-  'Pra você que teve um dia ruim', 'Todas as flores que não te enviei',
-  'Nem todo amor tem um final feliz e tá tudo bem', 'Tudo nela brilha e queima',
-  'Para todas as pessoas apaixonantes', 'Quebre os seus sapatinhos de cristal',
-  'Faça a sua coroa de gelo brilhar', 'Cidade de Papel', 'A culpa é das estrelas',
-  'Para onde ela foi', 'Eu perdi o rumo', 'Um ano inesquecível',
-  'Palavras em azul profundo', 'Um milhão de finais felizes',
-  'O reino das vozes que não se calam', 'O mundo das vozes silenciadas',
-  'A princesa adormecida', 'Cinderela pop', 'Princesa das águas', 'Extraordinário',
-  'O milagre', 'O resgate', 'O guardião', 'Puro impulso', 'Orgulho e preconceito',
-  'Razão e sentimento', 'Puro impacto', 'A última carta', 'O namorado',
-  'A trilha para o coração', 'Sem juízo', 'No fundo, é amor', 'Rei da inveja',
-];
-
+// Lista da Bia — vem de bia-lista-real.js, com nota, ano e status de verdade
+// (extraída do diário de leitura dela). Se um dia for preciso reimportar do zero,
+// já entra tudo certo, sem precisar rodar corrigir-notas-bia.js depois.
 // ---------------------------------------------------------------------------
 
 async function ensureUser(name, username, plainPassword, bio) {
@@ -214,9 +154,9 @@ async function upsertUserBook(userId, bookId, { status, rating, finishYear }) {
   const id = newId('ub');
   await db.run(
     `INSERT INTO user_books
-    (id, user_id, book_id, status, current_page, start_date, finish_date, goal_date, rating, review_text, favorite, personal_comment, created_at, updated_at)
-    VALUES (?, ?, ?, ?, 0, ?, ?, NULL, ?, '', 0, '', ?, ?)`,
-    [id, userId, bookId, status, startDate, finishDate, rating, now, now],
+    (id, user_id, book_id, status, current_page, start_date, finish_date, finish_date_precision, goal_date, rating, review_text, favorite, personal_comment, created_at, updated_at)
+    VALUES (?, ?, ?, ?, 0, ?, ?, ?, NULL, ?, '', 0, '', ?, ?)`,
+    [id, userId, bookId, status, startDate, finishDate, finishDate ? 'year' : 'day', rating, now, now],
   );
   return { updated: true, skipped: false };
 }
@@ -247,11 +187,12 @@ async function run() {
   }
   console.log(`✅ ${belleAdded} livro(s) adicionados para Belle, ${belleSkipped} já existiam (pulados).`);
 
-  console.log('\n--- Importando lista da Bia (sem notas, todos "Lido") ---');
+  console.log('\n--- Importando lista da Bia (com notas, anos e status reais) ---');
   let biaAdded = 0, biaSkipped = 0;
-  for (const title of biaList) {
-    const book = await ensureBookByTitle(title, '');
-    const result = await upsertUserBook(bia.user.id, book.id, { status: 'lido', rating: null, finishYear: null });
+  for (const row of biaListReal) {
+    const [title, author, rating, status, year] = row;
+    const book = await ensureBookByTitle(title, author);
+    const result = await upsertUserBook(bia.user.id, book.id, { status, rating, finishYear: year });
     if (result.updated) biaAdded++; else biaSkipped++;
   }
   console.log(`✅ ${biaAdded} livro(s) adicionados para Bia, ${biaSkipped} já existiam (pulados).`);
