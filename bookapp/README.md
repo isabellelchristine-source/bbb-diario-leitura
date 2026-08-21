@@ -27,6 +27,16 @@ Detalhes importantes:
 - Como a Bia ainda não tinha perfil, a importação cria um perfil pra ela com usuário **bia** e senha temporária **trocarSenha123**. Assim que ela entrar, pode trocar a senha em "Editar perfil".
 - Pode rodar esse importador mais de uma vez sem medo — ele nunca duplica um livro que já foi importado.
 
+## Corrigir as notas da Bia (uma vez só)
+
+A primeira importação da lista da Bia só tinha os títulos dos livros, sem nota, ano ou status — por isso as estatísticas dela apareciam zeradas. Agora com o diário de leitura completo da Bia, dá pra corrigir isso no site publicado:
+
+1. Dê dois cliques em **"Corrigir notas da Bia.command"**.
+2. Cole a Database URL e o Auth Token do Turso quando for pedido (os mesmos que você usa em "Enviar meus dados pra nuvem").
+3. Aguarde a mensagem de conclusão no Terminal.
+
+Esse script só preenche nota, status (Lido/Abandonei) e ano de término de livros que ainda estavam do jeito que vieram da importação antiga (sem nota e sem resenha escrita). Se a Bia já tiver dado nota ou escrito algo em algum desses livros pelo próprio app, ele pula esse livro e avisa no final — nada de cartas, comentários, diário ou capas é apagado ou sobrescrito. Também pode rodar mais de uma vez sem problema.
+
 ## Compartilhar com a Bia (ela está em outro lugar)
 
 O BBB roda no computador de quem estiver com a pasta `bookapp` aberta — essa pessoa "hospeda" o app, e a outra acessa por um link. Como o notebook da Isabelle é corporativo e tem um bloqueio de segurança que impede gerar esse link por lá, a solução é a **Bia hospedar** (rodar o servidor no computador dela) e a Isabelle acessar remotamente. Funciona igual, só troca quem roda o quê:

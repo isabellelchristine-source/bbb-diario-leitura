@@ -1,11 +1,14 @@
 // actions.js — fluxos reutilizáveis (modais) que mudam dados: progresso, diário, resenha, adicionar livro, metas, perfil.
 import { api } from './api.js';
 import { openModal, closeModal } from './modal.js';
-import { toast, escapeHtml, starsHtml, bookCoverHtml } from './components.js';
+import {
+  toast, escapeHtml, starsHtml, bookCoverHtml, fileToResizedDataUrl, letterHtml,
+  LETTER_FONT_OPTIONS, LETTER_BG_OPTIONS, LETTER_BORDER_OPTIONS, LETTER_COLOR_OPTIONS,
+} from './components.js';
 import { EMOJIS, STATUS_META, state } from './state.js';
 
-// Liga os campos de comentário (input + botão enviar) de qualquer lista de atualizações
-// do diário renderizada com commentsHtml(). Chame de novo toda vez que re-renderizar a view.
+// Liga os campos de comentário (input + botão enviar, editar e excluir) de qualquer lista de
+// atualizações do diário renderizada com commentsHtml(). Chame de novo toda vez que re-renderizar a view.
 export function attachCommentHandlers(view, onSent) {
   view.querySelectorAll('[data-comment-send]').forEach((btn) => {
     const send = async () => {
@@ -31,6 +34,123 @@ export function attachCommentHandlers(view, onSent) {
         view.querySelector(`[data-comment-send="${input.dataset.commentInput}"]`)?.click();
       }
     };
+  });
+  view.querySelectorAll('[data-comment-delete]').forEach((btn) => {
+    btn.onclick = async () => {
+      if (!confirm('Excluir esse comentário?')) return;
+      try {
+        await api.del(`/comments/${btn.dataset.commentDelete}`);
+        onSent && onSent();
+      } catch (e) { toast(e.message); }
+    };
+  });
+  view.querySelectorAll('[data-comment-edit]').forEach((btn) => {
+    btn.onclick = () => {
+      const id = btn.dataset.commentEdit;
+      const bodyEl = view.querySelector(`[data-comment-body="${id}"]`);
+      if (!bodyEl || bodyEl.querySelector('input')) return;
+      const currentText = bodyEl.textContent;
+      bodyEl.innerHTML = '';
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.value = currentText;
+      input.style.cssText = 'display:inline-block;width:auto;min-width:160px;max-width:100%;padding:3px 8px;font-size:0.85rem;margin:2px 4px 2px 0';
+      const saveBtn = document.createElement('button');
+      saveBtn.className = 'link-btn';
+      saveBtn.style.fontSize = '0.78rem';
+      saveBtn.textContent = 'salvar';
+      const cancelBtn = document.createElement('button');
+      cancelBtn.className = 'link-btn';
+      cancelBtn.style.cssText = 'font-size:0.78rem;margin-left:8px';
+      cancelBtn.textContent = 'cancelar';
+      bodyEl.append(input, saveBtn, cancelBtn);
+      input.focus();
+      const save = async () => {
+        const text = input.value.trim();
+        if (!text) return toast('O comentário não pode ficar vazio');
+        try {
+          await api.patch(`/comments/${id}`, { text });
+          onSent && onSent();
+        } catch (e) { toast(e.message); }
+      };
+      saveBtn.onclick = save;
+      cancelBtn.onclick = () => { onSent && onSent(); };
+      input.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); save(); } };
+    };
+  });
+}
+
+// Liga os botões de editar/excluir de anotações do diário (journalActionsHtml). `entries` é a
+// lista de anotações renderizadas na view (pra achar os dados de quem está sendo editada).
+export function attachJournalActionHandlers(view, entries, onDone) {
+  // stopPropagation porque esses botões às vezes ficam dentro de um bloco que também tem
+  // onclick pra abrir o livro (na home) — sem isso, editar/excluir também navegaria pra lá.
+  view.querySelectorAll('[data-journal-delete]').forEach((btn) => {
+    btn.onclick = async (ev) => {
+      ev.stopPropagation();
+      if (!confirm('Excluir essa anotação do diário? Os comentários dela também somem.')) return;
+      try {
+        await api.del(`/journal/${btn.dataset.journalDelete}`);
+        toast('Anotação excluída.');
+        onDone && onDone();
+      } catch (e) { toast(e.message); }
+    };
+  });
+  view.querySelectorAll('[data-journal-edit]').forEach((btn) => {
+    btn.onclick = (ev) => {
+      ev.stopPropagation();
+      const entry = entries.find((e) => e.id === btn.dataset.journalEdit);
+      if (entry) openEditJournalEntryModal(entry, onDone);
+    };
+  });
+}
+
+function openEditJournalEntryModal(entry, onDone) {
+  let selectedEmoji = entry.emoji || '';
+  openModal(`
+    <h3>✏️ Editar anotação</h3>
+    <div class="field">
+      <label>Sua anotação</label>
+      <textarea id="f-text">${escapeHtml(entry.text)}</textarea>
+    </div>
+    <div class="field">
+      <label>Página</label>
+      <input type="number" id="f-page" min="0" value="${entry.page || 0}" />
+    </div>
+    <div class="field">
+      <label>Emoji (opcional)</label>
+      <div class="emoji-picker-row" id="f-emojis">
+        ${EMOJIS.map((e) => `<button type="button" data-emoji="${e}" class="${e === selectedEmoji ? 'selected' : ''}">${e}</button>`).join('')}
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="f-cancel">Cancelar</button>
+      <button class="btn btn-primary btn-block" id="f-save">Salvar alterações</button>
+    </div>
+  `, {
+    onMount: (modal) => {
+      modal.querySelector('#f-cancel').onclick = closeModal;
+      modal.querySelectorAll('#f-emojis button').forEach((btn) => {
+        btn.onclick = () => {
+          const already = btn.classList.contains('selected');
+          modal.querySelectorAll('#f-emojis button').forEach((b) => b.classList.remove('selected'));
+          selectedEmoji = already ? '' : btn.dataset.emoji;
+          if (!already) btn.classList.add('selected');
+        };
+      });
+      modal.querySelector('#f-save').onclick = async () => {
+        const text = modal.querySelector('#f-text').value.trim();
+        if (!text) return toast('Escreva algo antes de salvar 🤍');
+        try {
+          await api.patch(`/journal/${entry.id}`, {
+            text, emoji: selectedEmoji, page: Number(modal.querySelector('#f-page').value || 0),
+          });
+          closeModal();
+          toast('Anotação atualizada!');
+          onDone && onDone();
+        } catch (e) { toast(e.message); }
+      };
+    },
   });
 }
 
@@ -189,6 +309,8 @@ export function openReviewModal(userBook, onDone) {
   const quoteVal = draft ? draft.quote : (userBook.review_quote || '');
   const pageVal = draft ? draft.page : (userBook.review_page ?? '');
   const favVal = draft ? draft.fav : !!userBook.favorite;
+  const savedStyle = (() => { try { return userBook.review_style ? JSON.parse(userBook.review_style) : {}; } catch (e) { return {}; } })();
+  const styleState = draft?.style || { font: savedStyle.font || 'serif', bg: savedStyle.bg || 'paper', border: savedStyle.border || 'dashed', color: savedStyle.color };
 
   openModal(`
     <h3>💌 Carta sobre esse livro</h3>
@@ -217,6 +339,36 @@ export function openReviewModal(userBook, onDone) {
       </div>
     </div>
     <div class="field"><label><input type="checkbox" id="f-fav" style="width:auto;display:inline-block;margin-right:6px;" ${favVal ? 'checked' : ''}/> Marcar como favorito ⭐</label></div>
+
+    <details class="field letter-style-picker">
+      <summary>🎨 Personalizar aparência da carta (opcional)</summary>
+      <div style="margin-top:12px">
+        <label class="muted" style="font-weight:700;font-size:0.8rem;display:block;margin-bottom:6px">Fonte</label>
+        <div class="chip-row" id="f-style-font">
+          ${Object.entries(LETTER_FONT_OPTIONS).map(([k, o]) => `<button type="button" class="tab" data-font="${k}">${o.label}</button>`).join('')}
+        </div>
+      </div>
+      <div style="margin-top:12px">
+        <label class="muted" style="font-weight:700;font-size:0.8rem;display:block;margin-bottom:6px">Cor do texto</label>
+        <div class="chip-row" id="f-style-color">
+          ${LETTER_COLOR_OPTIONS.map((c) => `<button type="button" data-color-swatch="${c}" style="width:26px;height:26px;border-radius:50%;background:${c};border:2px solid transparent;cursor:pointer;padding:0"></button>`).join('')}
+        </div>
+      </div>
+      <div style="margin-top:12px">
+        <label class="muted" style="font-weight:700;font-size:0.8rem;display:block;margin-bottom:6px">Fundo</label>
+        <div class="chip-row" id="f-style-bg">
+          ${Object.entries(LETTER_BG_OPTIONS).map(([k, o]) => `<button type="button" class="tab" data-bg="${k}">${o.label}</button>`).join('')}
+        </div>
+      </div>
+      <div style="margin-top:12px">
+        <label class="muted" style="font-weight:700;font-size:0.8rem;display:block;margin-bottom:6px">Borda</label>
+        <div class="chip-row" id="f-style-border">
+          ${Object.entries(LETTER_BORDER_OPTIONS).map(([k, o]) => `<button type="button" class="tab" data-border="${k}">${o.label}</button>`).join('')}
+        </div>
+      </div>
+      <div id="f-style-preview" style="margin-top:14px"></div>
+    </details>
+
     <div class="modal-actions">
       <button class="btn btn-ghost" id="f-cancel">Cancelar</button>
       <button class="btn btn-primary btn-block" id="f-save">Salvar carta</button>
@@ -227,14 +379,22 @@ export function openReviewModal(userBook, onDone) {
       const quoteEl = modal.querySelector('#f-quote');
       const pageEl = modal.querySelector('#f-quote-page');
       const favEl = modal.querySelector('#f-fav');
+      const previewEl = modal.querySelector('#f-style-preview');
+
+      const renderPreview = () => {
+        previewEl.innerHTML = letterHtml({
+          review_text: reviewEl.value.trim() || 'Sua carta vai aparecer assim...',
+          review_quote: '', review_style: JSON.stringify(styleState),
+        }, state.currentUser.name, recipient);
+      };
 
       // salva um rascunho automático a cada digitada, pra nunca mais perder o que foi escrito
       // (mesmo se a aba fechar ou a janela do BBB cair antes de clicar em Salvar).
       const persistDraft = () => saveDraft(userBook, {
         text: reviewEl.value, quote: quoteEl.value, page: pageEl.value,
-        rating, isPublic, fav: favEl.checked,
+        rating, isPublic, fav: favEl.checked, style: styleState,
       });
-      [reviewEl, quoteEl, pageEl].forEach((el) => el.addEventListener('input', persistDraft));
+      [reviewEl, quoteEl, pageEl].forEach((el) => el.addEventListener('input', () => { persistDraft(); renderPreview(); }));
       favEl.addEventListener('change', persistDraft);
 
       modal.querySelector('#f-cancel').onclick = closeModal;
@@ -254,6 +414,25 @@ export function openReviewModal(userBook, onDone) {
           persistDraft();
         };
       });
+
+      const paintStylePickers = () => {
+        modal.querySelectorAll('[data-font]').forEach((b) => b.classList.toggle('active', b.dataset.font === styleState.font));
+        modal.querySelectorAll('[data-bg]').forEach((b) => b.classList.toggle('active', b.dataset.bg === styleState.bg));
+        modal.querySelectorAll('[data-border]').forEach((b) => b.classList.toggle('active', b.dataset.border === styleState.border));
+        modal.querySelectorAll('[data-color-swatch]').forEach((b) => { b.style.borderColor = b.dataset.colorSwatch === styleState.color ? '#2B2438' : 'transparent'; });
+      };
+      paintStylePickers();
+      renderPreview();
+      modal.querySelectorAll('[data-font]').forEach((b) => { b.onclick = () => { styleState.font = b.dataset.font; paintStylePickers(); persistDraft(); renderPreview(); }; });
+      modal.querySelectorAll('[data-bg]').forEach((b) => { b.onclick = () => { styleState.bg = b.dataset.bg; paintStylePickers(); persistDraft(); renderPreview(); }; });
+      modal.querySelectorAll('[data-border]').forEach((b) => { b.onclick = () => { styleState.border = b.dataset.border; paintStylePickers(); persistDraft(); renderPreview(); }; });
+      modal.querySelectorAll('[data-color-swatch]').forEach((b) => {
+        b.onclick = () => {
+          styleState.color = styleState.color === b.dataset.colorSwatch ? undefined : b.dataset.colorSwatch;
+          paintStylePickers(); persistDraft(); renderPreview();
+        };
+      });
+
       modal.querySelector('#f-save').onclick = async () => {
         try {
           const pv = pageEl.value;
@@ -264,6 +443,7 @@ export function openReviewModal(userBook, onDone) {
             review_page: pv ? Number(pv) : null,
             review_public: isPublic ? 1 : 0,
             favorite: favEl.checked ? 1 : 0,
+            review_style: JSON.stringify(styleState),
           });
           clearDraft(userBook);
           closeModal();
@@ -273,6 +453,18 @@ export function openReviewModal(userBook, onDone) {
       };
     },
   });
+}
+
+export async function deleteReview(userBook, onDone) {
+  if (!confirm('Excluir sua carta desse livro? A nota e o favorito também vão ser apagados.')) return;
+  try {
+    await api.patch(`/user-books/${userBook.id}`, {
+      review_text: '', review_quote: '', review_page: null, review_style: '', rating: null, favorite: 0,
+    });
+    clearDraft(userBook);
+    toast('Carta excluída.');
+    onDone && onDone();
+  } catch (e) { toast(e.message); }
 }
 
 export function openGoalModal(currentTarget, onDone) {
@@ -406,15 +598,21 @@ export function openAddBookModal(onAdded) {
 }
 
 function openManualBookForm(onAdded) {
+  let pickedDataUrl = '';
   openModal(`
     <h3>✍️ Cadastrar livro manualmente</h3>
     <div class="field"><label>Título</label><input id="f-title" /></div>
     <div class="field"><label>Autor</label><input id="f-author" /></div>
     <div class="field"><label>Total de páginas</label><input id="f-pages" type="number" min="0" /></div>
     <div class="field">
-      <label>URL da capa (opcional)</label>
+      <label>Escolher uma foto da capa (opcional)</label>
+      <input type="file" accept="image/*" id="f-cover-file" />
+      <div id="f-cover-preview"></div>
+    </div>
+    <div class="field">
+      <label>Ou cole o link de uma imagem</label>
       <input id="f-cover" placeholder="https://..." />
-      <button type="button" class="link-btn" id="f-find-cover" style="margin-top:6px">🔍 Buscar imagem da capa</button>
+      <button type="button" class="link-btn" id="f-find-cover" style="margin-top:6px">🔍 Buscar capa automaticamente</button>
     </div>
     <div class="modal-actions">
       <button class="btn btn-ghost" id="f-cancel">Cancelar</button>
@@ -423,12 +621,50 @@ function openManualBookForm(onAdded) {
   `, {
     onMount: (modal) => {
       modal.querySelector('#f-cancel').onclick = closeModal;
-      modal.querySelector('#f-find-cover').onclick = () => {
+      modal.querySelector('#f-find-cover').onclick = async () => {
         const title = modal.querySelector('#f-title').value.trim();
         const author = modal.querySelector('#f-author').value.trim();
-        const q = encodeURIComponent(`capa livro ${title} ${author}`.trim());
-        window.open(`https://www.google.com/search?tbm=isch&q=${q}`, '_blank');
-        toast('Achou a capa? Clique com o botão direito na imagem → "Copiar link da imagem" e cole aqui.');
+        if (!title) return toast('Informe o título primeiro');
+        const btn = modal.querySelector('#f-find-cover');
+        const originalLabel = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = '⏳ Buscando...';
+        try {
+          // Primeiro tenta achar automaticamente na Google Books/Open Library (mesma busca
+          // usada no fluxo principal de adicionar livro) — só abre a busca manual do Google
+          // Imagens se isso não encontrar nada.
+          const q = `${title} ${author}`.trim();
+          const { results } = await api.get(`/books/search?q=${encodeURIComponent(q)}`);
+          const match = (results || [])[0];
+          if (!match || (!match.cover_url && !match.total_pages)) throw new Error('sem resultado automático');
+          if (match.cover_url) {
+            pickedDataUrl = '';
+            modal.querySelector('#f-cover').value = match.cover_url;
+            modal.querySelector('#f-cover').disabled = false;
+            modal.querySelector('#f-cover-preview').innerHTML = `<img src="${match.cover_url}" style="width:90px;border-radius:10px;margin-top:8px;box-shadow:var(--shadow-card)"/>`;
+          }
+          if (match.total_pages && !modal.querySelector('#f-pages').value) {
+            modal.querySelector('#f-pages').value = match.total_pages;
+          }
+          toast(match.cover_url ? 'Capa encontrada automaticamente! ✨ Confira e ajuste se quiser.' : 'Achamos dados do livro, mas sem capa — busque manualmente abaixo.');
+        } catch (e) {
+          const q = encodeURIComponent(`capa livro ${title} ${author}`.trim());
+          window.open(`https://www.google.com/search?tbm=isch&q=${q}`, '_blank');
+          toast('Não achamos automaticamente. Clique com o botão direito na imagem → "Copiar link da imagem" e cole aqui.');
+        } finally {
+          btn.disabled = false;
+          btn.textContent = originalLabel;
+        }
+      };
+      modal.querySelector('#f-cover-file').onchange = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        try {
+          pickedDataUrl = await fileToResizedDataUrl(file);
+          modal.querySelector('#f-cover-preview').innerHTML = `<img src="${pickedDataUrl}" style="width:90px;border-radius:10px;margin-top:8px;box-shadow:var(--shadow-card)"/>`;
+          modal.querySelector('#f-cover').value = '';
+          modal.querySelector('#f-cover').disabled = true;
+        } catch (err) { toast(err.message); }
       };
       modal.querySelector('#f-next').onclick = () => {
         const title = modal.querySelector('#f-title').value.trim();
@@ -437,7 +673,7 @@ function openManualBookForm(onAdded) {
           title,
           author: modal.querySelector('#f-author').value.trim(),
           total_pages: Number(modal.querySelector('#f-pages').value || 0),
-          cover_url: modal.querySelector('#f-cover').value.trim(),
+          cover_url: pickedDataUrl || modal.querySelector('#f-cover').value.trim(),
         };
         openStatusPickerForBook(book, onAdded);
       };
@@ -501,13 +737,19 @@ async function saveUserBook(book, status, currentPage, onAdded) {
 }
 
 export function openAddCoverModal(book, onDone) {
+  let pickedDataUrl = '';
   openModal(`
     <h3>🖼️ Adicionar capa</h3>
     <p class="muted mt-0">${escapeHtml(book.title)}</p>
     <div class="field">
-      <label>URL da imagem da capa</label>
+      <label>Escolher uma foto do celular/computador</label>
+      <input type="file" accept="image/*" id="f-cover-file" />
+      <div id="f-cover-preview"></div>
+    </div>
+    <div class="field">
+      <label>Ou cole o link de uma imagem</label>
       <input id="f-cover-url" placeholder="https://..." />
-      <button type="button" class="link-btn" id="f-find-cover" style="margin-top:6px">🔍 Buscar imagem da capa</button>
+      <button type="button" class="link-btn" id="f-find-cover" style="margin-top:6px">🔍 Buscar capa automaticamente</button>
     </div>
     <div class="modal-actions">
       <button class="btn btn-ghost" id="f-cancel">Cancelar</button>
@@ -516,14 +758,42 @@ export function openAddCoverModal(book, onDone) {
   `, {
     onMount: (modal) => {
       modal.querySelector('#f-cancel').onclick = closeModal;
-      modal.querySelector('#f-find-cover').onclick = () => {
-        const q = encodeURIComponent(`capa livro ${book.title} ${book.author || ''}`.trim());
-        window.open(`https://www.google.com/search?tbm=isch&q=${q}`, '_blank');
-        toast('Clique com o botão direito na imagem → "Copiar link da imagem" e cole aqui.');
+      modal.querySelector('#f-find-cover').onclick = async () => {
+        const btn = modal.querySelector('#f-find-cover');
+        const originalLabel = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = '⏳ Buscando...';
+        try {
+          const q = `${book.title} ${book.author || ''}`.trim();
+          const { results } = await api.get(`/books/search?q=${encodeURIComponent(q)}`);
+          const match = (results || [])[0];
+          if (!match || !match.cover_url) throw new Error('sem resultado automático');
+          modal.querySelector('#f-cover-url').value = match.cover_url;
+          modal.querySelector('#f-cover-url').disabled = false;
+          modal.querySelector('#f-cover-preview').innerHTML = `<img src="${match.cover_url}" style="width:90px;border-radius:10px;margin-top:8px;box-shadow:var(--shadow-card)"/>`;
+          toast('Capa encontrada automaticamente! ✨ Confira e salve se estiver certa.');
+        } catch (e) {
+          const q = encodeURIComponent(`capa livro ${book.title} ${book.author || ''}`.trim());
+          window.open(`https://www.google.com/search?tbm=isch&q=${q}`, '_blank');
+          toast('Não achamos automaticamente. Clique com o botão direito na imagem → "Copiar link da imagem" e cole aqui.');
+        } finally {
+          btn.disabled = false;
+          btn.textContent = originalLabel;
+        }
+      };
+      modal.querySelector('#f-cover-file').onchange = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        try {
+          pickedDataUrl = await fileToResizedDataUrl(file);
+          modal.querySelector('#f-cover-preview').innerHTML = `<img src="${pickedDataUrl}" style="width:90px;border-radius:10px;margin-top:8px;box-shadow:var(--shadow-card)"/>`;
+          modal.querySelector('#f-cover-url').value = '';
+          modal.querySelector('#f-cover-url').disabled = true;
+        } catch (err) { toast(err.message); }
       };
       modal.querySelector('#f-save').onclick = async () => {
-        const coverUrl = modal.querySelector('#f-cover-url').value.trim();
-        if (!coverUrl) return toast('Cole o link de uma imagem primeiro');
+        const coverUrl = pickedDataUrl || modal.querySelector('#f-cover-url').value.trim();
+        if (!coverUrl) return toast('Escolha uma foto ou cole o link de uma imagem primeiro');
         try {
           await api.patch(`/books/${book.id}`, { cover_url: coverUrl });
           closeModal();
