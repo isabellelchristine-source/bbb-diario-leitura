@@ -151,6 +151,18 @@ CREATE TABLE IF NOT EXISTS goals (
   UNIQUE(user_id, year),
   FOREIGN KEY(user_id) REFERENCES users(id)
 );
+
+-- Comentários embaixo de uma carta/resenha (diferente dos comentários do diário, que ficam
+-- em "comments" e são presos a uma anotação — esses aqui são presos ao livro/leitura da pessoa).
+CREATE TABLE IF NOT EXISTS review_comments (
+  id TEXT PRIMARY KEY,
+  user_book_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  text TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY(user_book_id) REFERENCES user_books(id),
+  FOREIGN KEY(user_id) REFERENCES users(id)
+);
 `;
 
 async function ensureColumn(table, column, definition) {

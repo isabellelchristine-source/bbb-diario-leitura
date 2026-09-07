@@ -9,6 +9,7 @@ import { hashPassword, verifyPassword, createSession, getUserFromToken, destroyS
 import { sendJson, readBody, getToken, newId, nowIso, redactReview } from './util.js';
 import { computeStats, currentlyReading, getUserBooks } from './stats.js';
 import { searchGoogleBooks, searchOpenLibrary } from './bookSources.js';
+import { buildNotifications } from './notifications.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CLIENT_DIR = path.join(__dirname, '..', 'client');
@@ -325,6 +326,11 @@ const server = http.createServer(async (req, res) => {
       updates.push('updated_at = ?'); values.push(nowIso());
       values.push(row.id);
       await db.run(`UPDATE user_books SET ${updates.join(', ')} WHERE id = ?`, values);
+      // se a carta foi apagada (texto ficou vazio), os comentários dela também não fazem
+      // mais sentido — sem isso, ficariam "penduradas" sem nenhuma carta pra pertencer.
+      if (body.review_text === '') {
+        await db.run('DELETE FROM review_comments WHERE user_book_id = ?', [row.id]);
+      }
       const updated = await db.get('SELECT * FROM user_books WHERE id = ?', [row.id]);
       const book = await db.get('SELECT * FROM books WHERE id = ?', [updated.book_id]);
       return sendJson(res, 200, { user_book: { ...updated, book } });
@@ -336,6 +342,7 @@ const server = http.createServer(async (req, res) => {
       if (!row) return sendJson(res, 404, { error: 'não encontrado' });
       if (row.user_id !== user.id) return sendJson(res, 403, { error: 'não é sua estante' });
       await db.run('DELETE FROM journal_entries WHERE user_book_id = ?', [row.id]);
+      await db.run('DELETE FROM review_comments WHERE user_book_id = ?', [row.id]);
       await db.run('DELETE FROM user_books WHERE id = ?', [row.id]);
       return sendJson(res, 200, { ok: true });
     }
@@ -446,6 +453,52 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true });
     }
 
+    // ---------- COMENTÁRIOS NAS CARTAS/RESENHAS (embaixo da carta, tipo um post) ----------
+    if (pathname === '/api/review-comments' && method === 'GET') {
+      const userBookId = url.searchParams.get('user_book_id');
+      if (!userBookId) return sendJson(res, 400, { error: 'informe user_book_id' });
+      const rows = await db.all('SELECT * FROM review_comments WHERE user_book_id = ? ORDER BY created_at ASC', [userBookId]);
+      const comments = await Promise.all(rows.map(async (c) => {
+        const commenter = await db.get('SELECT * FROM users WHERE id = ?', [c.user_id]);
+        return { ...c, user: publicUser(commenter) };
+      }));
+      return sendJson(res, 200, { comments });
+    }
+
+    if (pathname === '/api/review-comments' && method === 'POST') {
+      const user = await requireAuth(req, res); if (!user) return;
+      const body = await readBody(req);
+      if (!body.user_book_id || !body.text || !body.text.trim()) return sendJson(res, 400, { error: 'user_book_id e text são obrigatórios' });
+      const ub = await db.get('SELECT * FROM user_books WHERE id = ?', [body.user_book_id]);
+      if (!ub) return sendJson(res, 404, { error: 'não encontrado' });
+      const id = newId('rcmt');
+      await db.run('INSERT INTO review_comments (id, user_book_id, user_id, text, created_at) VALUES (?, ?, ?, ?, ?)', [id, body.user_book_id, user.id, body.text.trim(), nowIso()]);
+      const row = await db.get('SELECT * FROM review_comments WHERE id = ?', [id]);
+      return sendJson(res, 201, { comment: { ...row, user: publicUser(user) } });
+    }
+
+    const reviewCommentMatch = pathname.match(/^\/api\/review-comments\/([^/]+)$/);
+    if (reviewCommentMatch && method === 'PATCH') {
+      const user = await requireAuth(req, res); if (!user) return;
+      const row = await db.get('SELECT * FROM review_comments WHERE id = ?', [reviewCommentMatch[1]]);
+      if (!row) return sendJson(res, 404, { error: 'não encontrado' });
+      if (row.user_id !== user.id) return sendJson(res, 403, { error: 'não é seu comentário' });
+      const body = await readBody(req);
+      if (!body.text || !body.text.trim()) return sendJson(res, 400, { error: 'texto obrigatório' });
+      await db.run('UPDATE review_comments SET text = ? WHERE id = ?', [body.text.trim(), row.id]);
+      const updated = await db.get('SELECT * FROM review_comments WHERE id = ?', [row.id]);
+      return sendJson(res, 200, { comment: { ...updated, user: publicUser(user) } });
+    }
+
+    if (reviewCommentMatch && method === 'DELETE') {
+      const user = await requireAuth(req, res); if (!user) return;
+      const row = await db.get('SELECT * FROM review_comments WHERE id = ?', [reviewCommentMatch[1]]);
+      if (!row) return sendJson(res, 404, { error: 'não encontrado' });
+      if (row.user_id !== user.id) return sendJson(res, 403, { error: 'não é seu comentário' });
+      await db.run('DELETE FROM review_comments WHERE id = ?', [row.id]);
+      return sendJson(res, 200, { ok: true });
+    }
+
     // ---------- REACTIONS ----------
     if (pathname === '/api/reactions' && method === 'POST') {
       const user = await requireAuth(req, res); if (!user) return;
@@ -539,53 +592,37 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (pathname === '/api/activity/unseen' && method === 'GET') {
+      // Mantido por compatibilidade (é só um resumo leve pro sininho/toast da barra de
+      // navegação, que fica consultando de tempos em tempos) — a lista completa e persistente
+      // mora em /api/notifications.
       const user = await requireAuth(req, res); if (!user) return;
-      const since = user.last_seen_at || user.created_at;
       const others = await db.all('SELECT * FROM users WHERE id != ?', [user.id]);
-      const events = [];
-
+      let notifications = [];
       for (const other of others) {
-        // atualizações de diário que ela escreveu
-        const newJournal = await db.all('SELECT * FROM journal_entries WHERE user_id = ? AND created_at > ?', [other.id, since]);
-        for (const j of newJournal) {
-          const ub = await db.get('SELECT * FROM user_books WHERE id = ?', [j.user_book_id]);
-          const book = ub ? await db.get('SELECT * FROM books WHERE id = ?', [ub.book_id]) : null;
-          events.push({
-            at: j.created_at,
-            message: `${other.name} escreveu sobre "${book?.title || 'um livro'}"`,
-            bookId: ub?.book_id || null,
-          });
-        }
-
-        // comentários dela em qualquer atualização (inclusive nas suas)
-        const newComments = await db.all('SELECT * FROM comments WHERE user_id = ? AND created_at > ?', [other.id, since]);
-        for (const c of newComments) {
-          const journal = await db.get('SELECT * FROM journal_entries WHERE id = ?', [c.journal_id]);
-          const ub = journal ? await db.get('SELECT * FROM user_books WHERE id = ?', [journal.user_book_id]) : null;
-          const book = ub ? await db.get('SELECT * FROM books WHERE id = ?', [ub.book_id]) : null;
-          events.push({
-            at: c.created_at,
-            message: `${other.name} comentou em uma atualização sobre "${book?.title || 'um livro'}"`,
-            bookId: ub?.book_id || null,
-          });
-        }
-
-        // livros marcados como lido, ou cartas escritas
-        const changedBooks = await db.all('SELECT * FROM user_books WHERE user_id = ? AND updated_at > ?', [other.id, since]);
-        for (const ub of changedBooks) {
-          const book = await db.get('SELECT * FROM books WHERE id = ?', [ub.book_id]);
-          let message;
-          if (ub.status === 'lido' && ub.review_text) message = `${other.name} escreveu uma carta sobre "${book?.title || 'um livro'}"`;
-          else if (ub.status === 'lido') message = `${other.name} terminou "${book?.title || 'um livro'}"`;
-          else if (ub.status === 'lendo') message = `${other.name} atualizou o progresso em "${book?.title || 'um livro'}" (página ${ub.current_page})`;
-          else message = `${other.name} atualizou "${book?.title || 'um livro'}"`;
-          events.push({ at: ub.updated_at, message, bookId: ub.book_id });
-        }
+        const { notifications: n } = await buildNotifications(user.id, other.id);
+        notifications = notifications.concat(n);
       }
+      notifications.sort((a, b) => new Date(b.at) - new Date(a.at));
+      const unread = notifications.filter((n) => !n.read);
+      return sendJson(res, 200, {
+        hasNew: unread.length > 0,
+        since: user.last_seen_at || user.created_at,
+        latest: notifications[0] || null,
+      });
+    }
 
-      events.sort((a, b) => new Date(b.at) - new Date(a.at));
-      const latest = events[0] || null;
-      return sendJson(res, 200, { hasNew: events.length > 0, since, latest });
+    // ---------- NOTIFICAÇÕES (lista cheia, pra tela de notificações) ----------
+    if (pathname === '/api/notifications' && method === 'GET') {
+      const user = await requireAuth(req, res); if (!user) return;
+      const others = await db.all('SELECT * FROM users WHERE id != ?', [user.id]);
+      let notifications = [];
+      for (const other of others) {
+        const { notifications: n } = await buildNotifications(user.id, other.id);
+        notifications = notifications.concat(n);
+      }
+      notifications.sort((a, b) => new Date(b.at) - new Date(a.at));
+      const unread_count = notifications.filter((n) => !n.read).length;
+      return sendJson(res, 200, { notifications, unread_count });
     }
 
     // ---------- TOGETHER (leitura em conjunto) ----------
