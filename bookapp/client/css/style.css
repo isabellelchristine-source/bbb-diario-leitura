@@ -374,6 +374,35 @@ textarea { resize: vertical; min-height: 70px; }
 .letter-style-picker[open] summary::before { content: '▾ '; }
 .letter-style-picker[open] summary { margin-bottom: 4px; }
 
+/* ============ comentários embaixo da carta (tipo post) ============ */
+.review-comments-block { padding-top: 4px; }
+
+/* ============ central de notificações ============ */
+.notification-list { display: flex; flex-direction: column; gap: 8px; }
+.notification-row {
+  display: flex; align-items: flex-start; gap: 12px;
+  background: var(--paper); border-radius: var(--radius-md); padding: 13px 14px;
+  box-shadow: var(--shadow-card); border: 1px solid rgba(107,78,113,0.06);
+  transition: background .2s ease;
+}
+.notification-row.unread { background: #F3E9FB; border-color: rgba(201,169,233,0.5); }
+.notification-icon { font-size: 1.25rem; flex-shrink: 0; margin-top: 1px; }
+.notification-body { flex: 1; min-width: 0; }
+.notification-message { font-size: 0.92rem; line-height: 1.4; }
+.notification-time { margin-top: 2px; font-size: 0.75rem; }
+.notification-dot {
+  width: 9px; height: 9px; border-radius: 50%; background: var(--lavender);
+  flex-shrink: 0; margin-top: 6px;
+}
+
+/* ============ destaque ao chegar direto de uma notificação ============ */
+.focus-highlight { animation: focusPulse 2.4s ease; border-radius: var(--radius-md); }
+@keyframes focusPulse {
+  0% { background: rgba(201,169,233,0.4); }
+  70% { background: rgba(201,169,233,0.4); }
+  100% { background: transparent; }
+}
+
 /* ============ spoiler guard ============ */
 .spoiler-lock {
   display: flex; align-items: center; justify-content: space-between; gap: 10px;

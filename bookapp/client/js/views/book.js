@@ -1,10 +1,10 @@
 import { api } from '../api.js';
-import { bookCoverHtml, progressHtml, starsHtml, escapeHtml, formatDate, timeAgo, toast, avatarHtml, letterHtml, commentsHtml, journalActionsHtml } from '../components.js';
+import { bookCoverHtml, progressHtml, starsHtml, escapeHtml, formatDate, timeAgo, toast, avatarHtml, letterHtml, commentsHtml, journalActionsHtml, reviewCommentsHtml } from '../components.js';
 import { state, STATUS_META } from '../state.js';
 import { navigate } from '../router.js';
 import {
   openUpdateProgressModal, openJournalModal, openReviewModal, openAddCoverModal, openEditDateModal, openEditBookModal,
-  attachCommentHandlers, attachJournalActionHandlers, deleteReview,
+  attachCommentHandlers, attachJournalActionHandlers, attachReviewCommentHandlers, deleteReview,
 } from '../actions.js';
 
 function spoilerBlocked(entry, myPage, iAmReadingIt) {
@@ -12,7 +12,7 @@ function spoilerBlocked(entry, myPage, iAmReadingIt) {
   return (entry.page || 0) > (myPage || 0);
 }
 
-export async function renderBook(view, bookId) {
+export async function renderBook(view, bookId, focus) {
   view.innerHTML = `<p class="muted" style="text-align:center;padding:40px 0">abrindo o livro... 📖</p>`;
 
   const { book } = await api.get(`/books/${bookId}`);
@@ -30,6 +30,11 @@ export async function renderBook(view, bookId) {
   let friendJournal = [];
   if (myUb) myJournal = (await api.get(`/journal?user_book_id=${myUb.id}`)).entries;
   if (friendUb) friendJournal = (await api.get(`/journal?user_book_id=${friendUb.id}`)).entries;
+
+  let myReviewComments = [];
+  let friendReviewComments = [];
+  if (myUb && myUb.review_text) myReviewComments = (await api.get(`/review-comments?user_book_id=${myUb.id}`)).comments;
+  if (friendUb && friendUb.review_text) friendReviewComments = (await api.get(`/review-comments?user_book_id=${friendUb.id}`)).comments;
 
   const bothReadingSame = myUb && friendUb && myUb.status === 'lendo' && friendUb.status === 'lendo';
 
@@ -105,24 +110,30 @@ export async function renderBook(view, bookId) {
         <button class="link-btn" id="remove-book" style="color:#D97878">Remover da estante</button>
       </div>
       ${myUb.status === 'lido' && myUb.review_text ? `
-        <div class="row-between">
-          <div class="section-title mb-0">💌 Sua carta <span class="letter-visibility-badge ${myUb.review_public ? 'pill sage' : 'pill'}">${myUb.review_public ? '🌍 pública' : '🔒 privada'}</span></div>
-          <button class="link-btn" id="delete-review" style="color:#D97878;font-size:0.8rem">🗑️ Excluir</button>
+        <div data-focus-anchor="review">
+          <div class="row-between">
+            <div class="section-title mb-0">💌 Sua carta <span class="letter-visibility-badge ${myUb.review_public ? 'pill sage' : 'pill'}">${myUb.review_public ? '🌍 pública' : '🔒 privada'}</span></div>
+            <button class="link-btn" id="delete-review" style="color:#D97878;font-size:0.8rem">🗑️ Excluir</button>
+          </div>
+          ${letterHtml(myUb, state.currentUser.name, friend ? friend.name : 'você')}
+          ${reviewCommentsHtml(myUb.id, myReviewComments, state.currentUser.id)}
         </div>
-        ${letterHtml(myUb, state.currentUser.name, friend ? friend.name : 'você')}
       ` : ''}
     ` : ''}
 
     ${friendUb && friendUb.status === 'lido' ? `
-      <div class="section-title">💌 Carta de ${escapeHtml(friend.name)}</div>
-      ${letterHtml(friendUb, friend.name, state.currentUser.name) || `<p class="muted">${escapeHtml(friend.name)} ainda não escreveu a carta desse livro.</p>`}
+      <div data-focus-anchor="review">
+        <div class="section-title">💌 Carta de ${escapeHtml(friend.name)}</div>
+        ${friendUb.review_text || friendUb.review_hidden ? letterHtml(friendUb, friend.name, state.currentUser.name) : `<p class="muted">${escapeHtml(friend.name)} ainda não escreveu a carta desse livro.</p>`}
+        ${friendUb.review_text ? reviewCommentsHtml(friendUb.id, friendReviewComments, state.currentUser.id) : ''}
+      </div>
     ` : ''}
 
     ${myUb ? `
     <div class="section-title">💭 Seu diário desse livro</div>
     <div class="card">
       ${myJournal.length ? myJournal.map((e) => `
-        <div class="journal-entry">
+        <div class="journal-entry" data-focus-anchor="journal_${e.id}">
           <div class="journal-bubble">
             <div class="journal-meta"><span class="journal-page-badge">pág. ${e.page}</span> · ${timeAgo(e.created_at)}${journalActionsHtml(e, state.currentUser.id)}</div>
             <div class="journal-text">${e.emoji ? e.emoji + ' ' : ''}${escapeHtml(e.text)}</div>
@@ -137,11 +148,11 @@ export async function renderBook(view, bookId) {
       ${friendJournal.map((e) => {
         const blocked = spoilerBlocked(e, myUb?.current_page, myUb && myUb.status !== 'lido');
         if (blocked) {
-          return `<div class="journal-entry"><div class="journal-bubble">
+          return `<div class="journal-entry" data-focus-anchor="journal_${e.id}"><div class="journal-bubble">
             <div class="spoiler-lock"><span>🔒 Anotação na página ${e.page} — pode conter spoiler para você</span>
             <button class="btn btn-sm btn-soft" data-reveal-friend="${e.id}">Ver mesmo assim</button></div></div></div>`;
         }
-        return `<div class="journal-entry"><div class="journal-bubble">
+        return `<div class="journal-entry" data-focus-anchor="journal_${e.id}"><div class="journal-bubble">
           <div class="journal-meta"><span class="journal-page-badge">pág. ${e.page}</span> · ${timeAgo(e.created_at)}</div>
           <div class="journal-text">${e.emoji ? e.emoji + ' ' : ''}${escapeHtml(e.text)}</div>
           ${commentsHtml(e, state.currentUser.id)}
@@ -207,7 +218,7 @@ export async function renderBook(view, bookId) {
     btn.onclick = () => {
       const entry = friendJournal.find((e) => e.id === btn.dataset.revealFriend);
       const wrap = btn.closest('.journal-entry');
-      wrap.outerHTML = `<div class="journal-entry"><div class="journal-bubble">
+      wrap.outerHTML = `<div class="journal-entry" data-focus-anchor="journal_${entry.id}"><div class="journal-bubble">
           <div class="journal-meta"><span class="journal-page-badge">pág. ${entry.page}</span> · ${timeAgo(entry.created_at)}</div>
           <div class="journal-text">${entry.emoji ? entry.emoji + ' ' : ''}${escapeHtml(entry.text)}</div>
           ${commentsHtml(entry, state.currentUser.id)}
@@ -221,4 +232,19 @@ export async function renderBook(view, bookId) {
 
   attachCommentHandlers(view, () => renderBook(view, bookId));
   attachJournalActionHandlers(view, myJournal, () => renderBook(view, bookId));
+  attachReviewCommentHandlers(view, () => renderBook(view, bookId, focus));
+
+  // Quando se chega aqui a partir de uma notificação (ex: "Bea comentou na carta de X"),
+  // rola até o trecho certo e dá um destaque suave nele por alguns segundos. O setTimeout
+  // é necessário porque o roteador força um scrollTo(0,0) logo depois que essa função
+  // termina — sem esperar, esse scroll aqui seria desfeito na hora.
+  if (focus) {
+    setTimeout(() => {
+      const target = view.querySelector(`[data-focus-anchor="${focus}"]`);
+      if (!target) return;
+      target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      target.classList.add('focus-highlight');
+      setTimeout(() => target.classList.remove('focus-highlight'), 2600);
+    }, 80);
+  }
 }

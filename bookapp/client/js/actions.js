@@ -80,6 +80,80 @@ export function attachCommentHandlers(view, onSent) {
   });
 }
 
+// Liga os campos de comentário (enviar/editar/excluir) de qualquer carta renderizada com
+// reviewCommentsHtml(). Mesma ideia de attachCommentHandlers, mas pros comentários da carta
+// (que usam data-review-comment-* pra não se confundir com os do diário).
+export function attachReviewCommentHandlers(view, onSent) {
+  view.querySelectorAll('[data-review-comment-send]').forEach((btn) => {
+    const send = async () => {
+      const userBookId = btn.dataset.reviewCommentSend;
+      const input = view.querySelector(`[data-review-comment-input="${userBookId}"]`);
+      const text = input.value.trim();
+      if (!text) return;
+      input.disabled = true;
+      try {
+        await api.post('/review-comments', { user_book_id: userBookId, text });
+        onSent && onSent();
+      } catch (e) {
+        toast(e.message);
+        input.disabled = false;
+      }
+    };
+    btn.onclick = send;
+  });
+  view.querySelectorAll('[data-review-comment-input]').forEach((input) => {
+    input.onkeydown = (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        view.querySelector(`[data-review-comment-send="${input.dataset.reviewCommentInput}"]`)?.click();
+      }
+    };
+  });
+  view.querySelectorAll('[data-review-comment-delete]').forEach((btn) => {
+    btn.onclick = async () => {
+      if (!confirm('Excluir esse comentário?')) return;
+      try {
+        await api.del(`/review-comments/${btn.dataset.reviewCommentDelete}`);
+        onSent && onSent();
+      } catch (e) { toast(e.message); }
+    };
+  });
+  view.querySelectorAll('[data-review-comment-edit]').forEach((btn) => {
+    btn.onclick = () => {
+      const id = btn.dataset.reviewCommentEdit;
+      const bodyEl = view.querySelector(`[data-review-comment-body="${id}"]`);
+      if (!bodyEl || bodyEl.querySelector('input')) return;
+      const currentText = bodyEl.textContent;
+      bodyEl.innerHTML = '';
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.value = currentText;
+      input.style.cssText = 'display:inline-block;width:auto;min-width:160px;max-width:100%;padding:3px 8px;font-size:0.85rem;margin:2px 4px 2px 0';
+      const saveBtn = document.createElement('button');
+      saveBtn.className = 'link-btn';
+      saveBtn.style.fontSize = '0.78rem';
+      saveBtn.textContent = 'salvar';
+      const cancelBtn = document.createElement('button');
+      cancelBtn.className = 'link-btn';
+      cancelBtn.style.cssText = 'font-size:0.78rem;margin-left:8px';
+      cancelBtn.textContent = 'cancelar';
+      bodyEl.append(input, saveBtn, cancelBtn);
+      input.focus();
+      const save = async () => {
+        const text = input.value.trim();
+        if (!text) return toast('O comentário não pode ficar vazio');
+        try {
+          await api.patch(`/review-comments/${id}`, { text });
+          onSent && onSent();
+        } catch (e) { toast(e.message); }
+      };
+      saveBtn.onclick = save;
+      cancelBtn.onclick = () => { onSent && onSent(); };
+      input.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); save(); } };
+    };
+  });
+}
+
 // Liga os botões de editar/excluir de anotações do diário (journalActionsHtml). `entries` é a
 // lista de anotações renderizadas na view (pra achar os dados de quem está sendo editada).
 export function attachJournalActionHandlers(view, entries, onDone) {

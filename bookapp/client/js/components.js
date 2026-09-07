@@ -162,6 +162,34 @@ export function commentsHtml(entry, currentUserId) {
     </div>`;
 }
 
+// Comentários embaixo de uma carta/resenha, tipo um post de rede social — separado dos
+// comentários do diário (mesma ideia visual, mas presos ao livro/leitura, não a uma anotação).
+export function reviewCommentsHtml(userBookId, comments, currentUserId) {
+  const list = comments || [];
+  return `
+    <div class="comments-block review-comments-block" data-review-comments-for="${userBookId}">
+      <div class="section-title" style="margin:14px 4px 8px;font-size:0.9rem">💬 Comentários</div>
+      ${list.length ? `<div class="comments-list">
+        ${list.map((c) => `
+          <div class="comment-row">
+            <div class="comment-row-main">
+              <strong>${escapeHtml(c.user?.name || '')}</strong> <span data-review-comment-body="${c.id}">${escapeHtml(c.text)}</span>
+              <span class="muted comment-time">${timeAgo(c.created_at)}</span>
+            </div>
+            ${currentUserId && c.user_id === currentUserId ? `
+              <div class="comment-actions">
+                <button class="comment-action-btn" data-review-comment-edit="${c.id}" title="Editar comentário">✏️</button>
+                <button class="comment-action-btn" data-review-comment-delete="${c.id}" title="Excluir comentário">🗑️</button>
+              </div>` : ''}
+          </div>`).join('')}
+      </div>` : `<p class="muted mt-0" style="font-size:0.85rem">Nenhum comentário ainda — seja a primeira 🤍</p>`}
+      <div class="comment-input-row">
+        <input type="text" placeholder="Escreva um comentário..." data-review-comment-input="${userBookId}" />
+        <button class="icon-btn" data-review-comment-send="${userBookId}" title="Enviar">➤</button>
+      </div>
+    </div>`;
+}
+
 // Botões de editar/excluir pra colocar ao lado de uma anotação do diário — só aparecem
 // quando quem está vendo é a autora daquela anotação.
 export function journalActionsHtml(entry, currentUserId) {
