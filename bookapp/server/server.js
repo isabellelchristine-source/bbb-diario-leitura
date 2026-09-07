@@ -504,7 +504,15 @@ const server = http.createServer(async (req, res) => {
         const book = ub ? await db.get('SELECT * FROM books WHERE id = ?', [ub.book_id]) : null;
         const u = users.find((x) => x.id === r.user_id);
         const reactions = await db.all('SELECT * FROM reactions WHERE journal_id = ?', [r.id]);
-        return { ...r, book, user: publicUser(u), reactions };
+        // Os comentários também precisam vir aqui — sem isso, um comentário existente só
+        // aparecia dentro da página do livro, nunca na Home, dando a impressão de que ele
+        // tinha sumido ou não tinha sido enviado de verdade.
+        const commentRows = await db.all('SELECT * FROM comments WHERE journal_id = ? ORDER BY created_at ASC', [r.id]);
+        const comments = await Promise.all(commentRows.map(async (c) => {
+          const commenter = await db.get('SELECT * FROM users WHERE id = ?', [c.user_id]);
+          return { ...c, user: publicUser(commenter) };
+        }));
+        return { ...r, book, user: publicUser(u), reactions, comments };
       }));
       // "Últimos livros finalizados" mostra prioritariamente os da amiga — ver o que
       // você mesma já sabe que leu é menos interessante do que ver a novidade dela.
