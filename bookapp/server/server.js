@@ -10,6 +10,7 @@ import { sendJson, readBody, getToken, newId, nowIso, redactReview } from './uti
 import { computeStats, currentlyReading, getUserBooks } from './stats.js';
 import { searchGoogleBooks, searchOpenLibrary } from './bookSources.js';
 import { buildNotifications } from './notifications.js';
+import { saveSubscription, removeSubscription, sendPushToUser, getVapidPublicKey, pushEnabled } from './push.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CLIENT_DIR = path.join(__dirname, '..', 'client');
@@ -87,6 +88,16 @@ async function ensureBook(input) {
       input.synopsis || '', input.isbn || '', input.source_id || '', nowIso()],
   );
   return db.get('SELECT * FROM books WHERE id = ?', [id]);
+}
+
+// Manda um push pra(s) outra(s) usuária(s) (não pra quem fez a ação) — mesma ideia de
+// "focus" usada na central de notificações, pra abrir direto no trecho certo ao tocar.
+async function notifyOthers(actingUser, { title, body, bookId, focus }) {
+  try {
+    const others = await db.all('SELECT id FROM users WHERE id != ?', [actingUser.id]);
+    const url = bookId ? `/#/book/${bookId}${focus ? `?focus=${encodeURIComponent(focus)}` : ''}` : '/#/home';
+    await Promise.all(others.map((o) => sendPushToUser(o.id, { title, body, url })));
+  } catch (e) { console.error('erro ao notificar:', e.message || e); }
 }
 
 const server = http.createServer(async (req, res) => {
@@ -333,6 +344,18 @@ const server = http.createServer(async (req, res) => {
       }
       const updated = await db.get('SELECT * FROM user_books WHERE id = ?', [row.id]);
       const book = await db.get('SELECT * FROM books WHERE id = ?', [updated.book_id]);
+
+      // Notifica a amiga só da coisa mais relevante que mudou nessa chamada (nunca mais de
+      // uma por PATCH) — carta nova > terminou o livro > progresso, nessa ordem de prioridade.
+      const title = book?.title || 'um livro';
+      if (body.review_text && !row.review_text) {
+        notifyOthers(user, { title: `${user.name} escreveu uma carta 💌`, body: `Sobre "${title}"`, bookId: updated.book_id, focus: 'review' });
+      } else if (body.status === 'lido' && row.status !== 'lido') {
+        notifyOthers(user, { title: `${user.name} terminou um livro ✅`, body: `"${title}"`, bookId: updated.book_id });
+      } else if (body.current_page !== undefined && body.current_page !== row.current_page && updated.status === 'lendo') {
+        notifyOthers(user, { title: `${user.name} está lendo 📖`, body: `"${title}" — página ${updated.current_page}`, bookId: updated.book_id });
+      }
+
       return sendJson(res, 200, { user_book: { ...updated, book } });
     }
 
@@ -387,6 +410,13 @@ const server = http.createServer(async (req, res) => {
         [id, body.user_book_id, user.id, body.text, body.emoji || '', body.page ?? ub.current_page, nowIso()],
       );
       const row = await db.get('SELECT * FROM journal_entries WHERE id = ?', [id]);
+      const jBook = await db.get('SELECT * FROM books WHERE id = ?', [ub.book_id]);
+      notifyOthers(user, {
+        title: `${user.name} escreveu no diário 💭`,
+        body: `Sobre "${jBook?.title || 'um livro'}": ${body.text.slice(0, 90)}`,
+        bookId: ub.book_id,
+        focus: `journal_${id}`,
+      });
       return sendJson(res, 201, { entry: row });
     }
 
@@ -428,6 +458,14 @@ const server = http.createServer(async (req, res) => {
       const id = newId('cmt');
       await db.run('INSERT INTO comments (id, journal_id, user_id, text, created_at) VALUES (?, ?, ?, ?, ?)', [id, body.journal_id, user.id, body.text.trim(), nowIso()]);
       const row = await db.get('SELECT * FROM comments WHERE id = ?', [id]);
+      const cUb = await db.get('SELECT * FROM user_books WHERE id = ?', [journal.user_book_id]);
+      const cBook = cUb ? await db.get('SELECT * FROM books WHERE id = ?', [cUb.book_id]) : null;
+      notifyOthers(user, {
+        title: `${user.name} comentou 💬`,
+        body: `Em uma atualização sobre "${cBook?.title || 'um livro'}": ${body.text.trim().slice(0, 90)}`,
+        bookId: cUb?.book_id,
+        focus: `journal_${journal.id}`,
+      });
       return sendJson(res, 201, { comment: { ...row, user: publicUser(user) } });
     }
 
@@ -474,6 +512,13 @@ const server = http.createServer(async (req, res) => {
       const id = newId('rcmt');
       await db.run('INSERT INTO review_comments (id, user_book_id, user_id, text, created_at) VALUES (?, ?, ?, ?, ?)', [id, body.user_book_id, user.id, body.text.trim(), nowIso()]);
       const row = await db.get('SELECT * FROM review_comments WHERE id = ?', [id]);
+      const rcBook = await db.get('SELECT * FROM books WHERE id = ?', [ub.book_id]);
+      notifyOthers(user, {
+        title: `${user.name} comentou na carta 💌`,
+        body: `Sobre "${rcBook?.title || 'um livro'}": ${body.text.trim().slice(0, 90)}`,
+        bookId: ub.book_id,
+        focus: 'review',
+      });
       return sendJson(res, 201, { comment: { ...row, user: publicUser(user) } });
     }
 
@@ -623,6 +668,30 @@ const server = http.createServer(async (req, res) => {
       notifications.sort((a, b) => new Date(b.at) - new Date(a.at));
       const unread_count = notifications.filter((n) => !n.read).length;
       return sendJson(res, 200, { notifications, unread_count });
+    }
+
+    // ---------- PUSH (notificação de verdade no celular/navegador) ----------
+    if (pathname === '/api/push/vapid-public-key' && method === 'GET') {
+      return sendJson(res, 200, { publicKey: getVapidPublicKey(), enabled: pushEnabled });
+    }
+
+    if (pathname === '/api/push/subscribe' && method === 'POST') {
+      const user = await requireAuth(req, res); if (!user) return;
+      const body = await readBody(req);
+      if (!body.subscription) return sendJson(res, 400, { error: 'subscription obrigatória' });
+      try {
+        await saveSubscription(user.id, body.subscription);
+        return sendJson(res, 201, { ok: true });
+      } catch (e) {
+        return sendJson(res, 400, { error: e.message || 'inscrição inválida' });
+      }
+    }
+
+    if (pathname === '/api/push/unsubscribe' && method === 'POST') {
+      const user = await requireAuth(req, res); if (!user) return;
+      const body = await readBody(req);
+      if (body.endpoint) await removeSubscription(body.endpoint);
+      return sendJson(res, 200, { ok: true });
     }
 
     // ---------- TOGETHER (leitura em conjunto) ----------
