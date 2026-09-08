@@ -12,6 +12,7 @@
     "enrich-covers": "node enrich-covers.js"
   },
   "dependencies": {
+    "web-push": "^3.6.7"
     "@libsql/client": "^0.14.0"
   },
   "engines": {
