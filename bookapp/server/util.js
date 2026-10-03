@@ -13,13 +13,13 @@ export function sendJson(res, status, data) {
   res.end(body);
 }
 
-export function readBody(req) {
+export function readBody(req, maxBytes = 5 * 1024 * 1024) {
   return new Promise((resolve, reject) => {
     let chunks = [];
     let size = 0;
     req.on('data', (c) => {
       size += c.length;
-      if (size > 5 * 1024 * 1024) {
+      if (size > maxBytes) {
         reject(new Error('payload too large'));
         req.destroy();
         return;

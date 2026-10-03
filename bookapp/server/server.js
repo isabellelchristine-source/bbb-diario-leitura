@@ -11,6 +11,7 @@ import { computeStats, currentlyReading, getUserBooks } from './stats.js';
 import { searchGoogleBooks, searchOpenLibrary } from './bookSources.js';
 import { buildNotifications } from './notifications.js';
 import { saveSubscription, removeSubscription, sendPushToUser, getVapidPublicKey, pushEnabled } from './push.js';
+import { draftLetterWithAI, aiEnabled } from './ai.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CLIENT_DIR = path.join(__dirname, '..', 'client');
@@ -542,6 +543,34 @@ const server = http.createServer(async (req, res) => {
       if (row.user_id !== user.id) return sendJson(res, 403, { error: 'não é seu comentário' });
       await db.run('DELETE FROM review_comments WHERE id = ?', [row.id]);
       return sendJson(res, 200, { ok: true });
+    }
+
+    // ---------- IA (ajuda a escrever a carta a partir de um áudio ou texto solto) ----------
+    if (pathname === '/api/ai/status' && method === 'GET') {
+      return sendJson(res, 200, { enabled: aiEnabled });
+    }
+
+    if (pathname === '/api/ai/draft-letter' && method === 'POST') {
+      const user = await requireAuth(req, res); if (!user) return;
+      if (!aiEnabled) return sendJson(res, 400, { error: 'IA não configurada — peça pra Isabelle definir GEMINI_API_KEY no Render.' });
+      // áudio em base64 pode ser um pouco pesado — permite um corpo maior só nessa rota.
+      const body = await readBody(req, 20 * 1024 * 1024);
+      const book = body.book_id ? await db.get('SELECT * FROM books WHERE id = ?', [body.book_id]) : null;
+      const friend = await db.get('SELECT * FROM users WHERE id != ?', [user.id]);
+      try {
+        const text = await draftLetterWithAI(
+          {
+            bookTitle: book?.title,
+            bookAuthor: book?.author,
+            recipientName: friend?.name,
+            authorName: user.name,
+          },
+          body.audio_base64 ? { audioBase64: body.audio_base64, format: body.format } : { text: body.text },
+        );
+        return sendJson(res, 200, { text });
+      } catch (e) {
+        return sendJson(res, 502, { error: e.message || 'erro ao falar com a IA' });
+      }
     }
 
     // ---------- REACTIONS ----------
