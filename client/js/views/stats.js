@@ -1,12 +1,13 @@
 import { api } from '../api.js';
 import { escapeHtml, bookCoverHtml, starsHtml } from '../components.js';
 import { state } from '../state.js';
-import { navigate } from '../router.js';
+import { navigate, getRenderToken } from '../router.js';
 import { openGoalModal } from '../actions.js';
 
 const MONTHS = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
 
 export async function renderStats(view) {
+  const myToken = getRenderToken();
   view.innerHTML = `<p class="muted" style="text-align:center;padding:40px 0">calculando suas estatísticas... 📊</p>`;
 
   const year = new Date().getFullYear();
@@ -19,6 +20,7 @@ export async function renderStats(view) {
   const friend = state.allUsers.find((u) => u.id !== state.currentUser.id);
   let friendStats = null;
   if (friend) friendStats = (await api.get(`/stats/${friend.id}`)).stats;
+  if (getRenderToken() !== myToken) return;
 
   const monthCounts = new Array(12).fill(0);
   finished.forEach((ub) => {

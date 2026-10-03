@@ -253,7 +253,11 @@ textarea { resize: vertical; min-height: 70px; }
 @media (min-width: 640px) { .modal-backdrop { align-items: center; } }
 .modal {
   background: var(--paper); border-radius: 24px 24px 0 0; padding: 22px 20px calc(22px + env(safe-area-inset-bottom));
-  width: 100%; max-width: 480px; max-height: 88vh; overflow-y: auto;
+  width: 100%; max-width: 480px; overflow-y: auto;
+  /* dvh considera o teclado do celular aberto (vh comum não atualiza com o teclado em
+     alguns navegadores, o que fazia os botões de baixo ficarem espremidos/por cima do campo). */
+  max-height: 88vh;
+  max-height: 88dvh;
   animation: slideUp .28s cubic-bezier(.22,1,.36,1);
 }
 @media (min-width: 640px) { .modal { border-radius: 24px; } }
@@ -261,12 +265,15 @@ textarea { resize: vertical; min-height: 70px; }
 .modal .field { margin-bottom: 14px; }
 .modal .field label { display: block; font-size: 0.82rem; font-weight: 700; color: var(--ink-soft); margin-bottom: 5px; }
 /* Botões de ação ficam "grudados" na parte de baixo do modal — assim dá pra confirmar
-   sem precisar rolar até o final, mesmo em modais compridos. */
+   sem precisar rolar até o final, mesmo em modais compridos.
+   (Antes isso usava uma margem negativa pra colar na borda exata do modal, mas em alguns
+   celulares — principalmente com o teclado aberto — isso fazia os botões ficarem por cima
+   do último campo em vez de abaixo dele. bottom:0 + padding normal é mais previsível.) */
 .modal-actions {
   display: flex; gap: 10px;
-  position: sticky; bottom: -22px;
-  margin: 18px -20px calc(-22px - env(safe-area-inset-bottom));
-  padding: 14px 20px calc(14px + env(safe-area-inset-bottom));
+  position: sticky; bottom: 0;
+  margin-top: 18px;
+  padding: 14px 0 calc(14px + env(safe-area-inset-bottom));
   background: var(--paper);
   box-shadow: 0 -10px 16px -12px rgba(43, 36, 56, 0.18);
   z-index: 5;
@@ -320,9 +327,14 @@ textarea { resize: vertical; min-height: 70px; }
 /* ============ carrossel de livros finalizados (home) ============ */
 .finished-strip {
   display: flex; gap: 14px; overflow-x: auto; padding: 2px 2px 16px; margin-bottom: 4px; scrollbar-width: none;
+  scroll-snap-type: x proximity;
+  /* o card da borda direita ficava cortado de um jeito seco (meio do título) — o fade deixa
+     claro que é "arraste pra ver mais" em vez de parecer um corte estranho. */
+  mask-image: linear-gradient(to right, black calc(100% - 28px), transparent 100%);
+  -webkit-mask-image: linear-gradient(to right, black calc(100% - 28px), transparent 100%);
 }
 .finished-strip::-webkit-scrollbar { display: none; }
-.finished-item { flex: 0 0 92px; cursor: pointer; position: relative; }
+.finished-item { flex: 0 0 92px; cursor: pointer; position: relative; scroll-snap-align: start; }
 .finished-item .book-cover { width: 92px; height: 136px; }
 .finished-who { position: absolute; top: 6px; left: 6px; border: 2px solid var(--paper); border-radius: 50%; box-shadow: 0 2px 6px rgba(43,36,56,0.25); }
 .finished-title {
@@ -368,11 +380,41 @@ textarea { resize: vertical; min-height: 70px; }
 .letter-card.border-solid { border-style: solid; }
 .letter-card.border-none { border: none; }
 .letter-card.border-gold { border: 3px double var(--gold); }
-.letter-style-picker summary { cursor: pointer; font-weight: 700; font-size: 0.85rem; color: var(--plum-dark); list-style: none; }
-.letter-style-picker summary::-webkit-details-marker { display: none; }
-.letter-style-picker summary::before { content: '▸ '; }
-.letter-style-picker[open] summary::before { content: '▾ '; }
-.letter-style-picker[open] summary { margin-bottom: 4px; }
+.letter-style-picker summary, .ai-letter-helper summary { cursor: pointer; font-weight: 700; font-size: 0.85rem; color: var(--plum-dark); list-style: none; }
+.letter-style-picker summary::-webkit-details-marker, .ai-letter-helper summary::-webkit-details-marker { display: none; }
+.letter-style-picker summary::before, .ai-letter-helper summary::before { content: '▸ '; }
+.letter-style-picker[open] summary::before, .ai-letter-helper[open] summary::before { content: '▾ '; }
+.letter-style-picker[open] summary, .ai-letter-helper[open] summary { margin-bottom: 4px; }
+.ai-letter-helper { background: #FBF6FF; border: 1.5px dashed var(--lavender); border-radius: var(--radius-md); padding: 12px 14px; }
+
+/* ============ comentários embaixo da carta (tipo post) ============ */
+.review-comments-block { padding-top: 4px; }
+
+/* ============ central de notificações ============ */
+.notification-list { display: flex; flex-direction: column; gap: 8px; }
+.notification-row {
+  display: flex; align-items: flex-start; gap: 12px;
+  background: var(--paper); border-radius: var(--radius-md); padding: 13px 14px;
+  box-shadow: var(--shadow-card); border: 1px solid rgba(107,78,113,0.06);
+  transition: background .2s ease;
+}
+.notification-row.unread { background: #F3E9FB; border-color: rgba(201,169,233,0.5); }
+.notification-icon { font-size: 1.25rem; flex-shrink: 0; margin-top: 1px; }
+.notification-body { flex: 1; min-width: 0; }
+.notification-message { font-size: 0.92rem; line-height: 1.4; }
+.notification-time { margin-top: 2px; font-size: 0.75rem; }
+.notification-dot {
+  width: 9px; height: 9px; border-radius: 50%; background: var(--lavender);
+  flex-shrink: 0; margin-top: 6px;
+}
+
+/* ============ destaque ao chegar direto de uma notificação ============ */
+.focus-highlight { animation: focusPulse 2.4s ease; border-radius: var(--radius-md); }
+@keyframes focusPulse {
+  0% { background: rgba(201,169,233,0.4); }
+  70% { background: rgba(201,169,233,0.4); }
+  100% { background: transparent; }
+}
 
 /* ============ spoiler guard ============ */
 .spoiler-lock {

@@ -1,16 +1,19 @@
 import { api } from '../api.js';
 import { avatarHtml, bookCoverHtml, progressHtml, starsHtml, escapeHtml, timeAgo, formatDate } from '../components.js';
 import { state } from '../state.js';
-import { navigate } from '../router.js';
+import { navigate, getRenderToken } from '../router.js';
 import { openEditProfileModal } from '../actions.js';
+import { isPushSupported, getPushStatus, enablePush, disablePush } from '../push.js';
 
 export async function renderProfile(view, username) {
+  const myToken = getRenderToken();
   view.innerHTML = `<p class="muted" style="text-align:center;padding:40px 0">abrindo perfil... 👤</p>`;
 
   const isOwn = username === state.currentUser.username;
   const { user, stats, currently_reading } = await api.get(`/users/${encodeURIComponent(username)}`);
   const { entries: journal } = await api.get(`/journal?user_id=${user.id}&limit=8`);
   const { user_books: finished } = await api.get(`/user-books?user_id=${user.id}&status=lido`);
+  if (getRenderToken() !== myToken) return;
   const reviewed = finished.filter((f) => f.review_text || f.review_hidden).slice(0, 5);
 
   view.innerHTML = `
@@ -19,7 +22,11 @@ export async function renderProfile(view, username) {
       <h2 class="mt-0 mb-0">${escapeHtml(user.name)}</h2>
       <p class="muted">@${escapeHtml(user.username)}</p>
       ${user.bio ? `<p>${escapeHtml(user.bio)}</p>` : ''}
-      ${isOwn ? `<button class="btn btn-soft btn-sm" id="edit-profile">Editar perfil</button>` : ''}
+      ${isOwn ? `
+        <div class="chip-row" style="justify-content:center;margin-top:8px">
+          <button class="btn btn-soft btn-sm" id="edit-profile">Editar perfil</button>
+          ${isPushSupported() ? `<button class="btn btn-soft btn-sm" id="push-toggle">🔔 Notificações</button>` : ''}
+        </div>` : ''}
     </div>
 
     <div class="stat-grid" style="margin-bottom:16px">
@@ -86,4 +93,22 @@ export async function renderProfile(view, username) {
   view.querySelectorAll('[data-book]').forEach((el) => {
     el.onclick = () => navigate(`/book/${el.dataset.book}`);
   });
+
+  const pushBtn = view.querySelector('#push-toggle');
+  if (pushBtn) {
+    const paintPushButton = async () => {
+      const status = await getPushStatus();
+      if (status === 'subscribed') {
+        pushBtn.textContent = '🔕 Desativar notificações';
+        pushBtn.onclick = async () => { await disablePush(); paintPushButton(); };
+      } else if (status === 'denied') {
+        pushBtn.textContent = '🔔 Notificações bloqueadas';
+        pushBtn.onclick = () => { /* precisa liberar manualmente nas configurações do navegador */ };
+      } else {
+        pushBtn.textContent = '🔔 Ativar notificações no celular';
+        pushBtn.onclick = async () => { await enablePush(); paintPushButton(); };
+      }
+    };
+    paintPushButton();
+  }
 }

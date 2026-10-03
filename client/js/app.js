@@ -6,6 +6,7 @@ import { renderShelf } from './views/shelf.js';
 import { renderProfile } from './views/profile.js';
 import { renderBook } from './views/book.js';
 import { renderStats } from './views/stats.js';
+import { renderNotifications } from './views/notifications.js';
 import { api } from './api.js';
 import { toast } from './components.js';
 
@@ -34,11 +35,6 @@ function friendUsername() {
   return f ? f.username : null;
 }
 
-function friendFirstName() {
-  const f = state.allUsers.find((u) => u.username !== state.currentUser.username);
-  return f ? f.name.trim().split(/\s+/)[0] : 'Amiga';
-}
-
 function renderShell() {
   appEl.innerHTML = `
     <div class="app-shell">
@@ -50,7 +46,7 @@ function renderShell() {
       <nav class="bottom-nav">
         <button class="nav-item" data-path="/home"><span class="icon">🏠</span>Home</button>
         <button class="nav-item" data-path="/shelf"><span class="icon">📚</span>Estante</button>
-        <button class="nav-item" data-path="/friend"><span class="icon">👭<span class="nav-badge" id="friend-badge" hidden></span></span>${friendFirstName()}</button>
+        <button class="nav-item" data-path="/notifications"><span class="icon">📖<span class="nav-badge" id="friend-badge" hidden></span></span>Avisos</button>
         <button class="nav-item" data-path="/stats"><span class="icon">📊</span>Estatísticas</button>
         <button class="nav-item" data-path="/me"><span class="icon">👤</span>Perfil</button>
       </nav>
@@ -74,30 +70,30 @@ function renderShell() {
       view.innerHTML = `<div class="empty-state"><div class="emoji">👭</div><p>Ainda não há uma amiga cadastrada.<br/>Peça para ela criar o perfil dela na tela de login.</p></div>`;
       return;
     }
-    // se tem uma novidade específica (ex: um comentário num livro), vai direto pra lá
-    if (latestActivity && latestActivity.bookId) {
-      const bookId = latestActivity.bookId;
-      markSeenAndHideBadge();
-      navigate(`/book/${bookId}`);
+    navigate(`/user/${fu}`);
+  });
+  addRoute('/notifications', async () => {
+    const fu = friendUsername();
+    if (!fu) {
+      view.innerHTML = `<div class="empty-state"><div class="emoji">🔔</div><p>Ainda não há uma amiga cadastrada.<br/>Peça para ela criar o perfil dela na tela de login.</p></div>`;
       return;
     }
-    navigate(`/user/${fu}`);
+    await renderNotifications(view);
+    markSeenAndHideBadge();
   });
   addRoute('/me', async () => navigate(`/user/${state.currentUser.username}`));
   addRoute('/user/:username', async (params) => {
     await renderProfile(view, params.username);
     if (params.username === friendUsername()) markSeenAndHideBadge();
   });
-  addRoute('/book/:bookId', async (params) => renderBook(view, params.bookId));
+  addRoute('/book/:bookId', async (params, query) => renderBook(view, params.bookId, query?.get('focus') || null));
   addRoute('/stats', async () => renderStats(view));
 
   function updateActiveNav() {
     const path = currentPath();
     const own = state.currentUser.username;
-    const fu = friendUsername();
     let effective = path;
     if (path === `/user/${own}`) effective = '/me';
-    else if (fu && path === `/user/${fu}`) effective = '/friend';
     else if (path.startsWith('/book/')) effective = '/shelf';
     document.querySelectorAll('.nav-item').forEach((btn) => {
       btn.classList.toggle('active', btn.dataset.path === effective);
@@ -131,7 +127,7 @@ async function checkActivity() {
     latestActivity = latest;
     const badge = document.getElementById('friend-badge');
     if (badge) badge.hidden = !hasNew;
-    const navLabel = document.querySelector('.nav-item[data-path="/friend"]');
+    const navLabel = document.querySelector('.nav-item[data-path="/notifications"]');
     if (navLabel) navLabel.title = hasNew && latest ? latest.message : '';
     if (hasNew && latest && latest.at !== notifiedAt) {
       notifiedAt = latest.at;
