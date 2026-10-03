@@ -6,6 +6,7 @@ import {
   LETTER_FONT_OPTIONS, LETTER_BG_OPTIONS, LETTER_BORDER_OPTIONS, LETTER_COLOR_OPTIONS,
 } from './components.js';
 import { EMOJIS, STATUS_META, state } from './state.js';
+import { isRecordingSupported, checkAiStatus, startRecording, draftLetterFromAudio } from './ai.js';
 
 // Liga os campos de comentário (input + botão enviar, editar e excluir) de qualquer lista de
 // atualizações do diário renderizada com commentsHtml(). Chame de novo toda vez que re-renderizar a view.
@@ -398,6 +399,13 @@ export function openReviewModal(userBook, onDone) {
       <label>Querida ${escapeHtml(recipient)}... (escreva sua carta)</label>
       <textarea id="f-review" rows="6" placeholder="Conta pra ela o que você achou desse livro, como se sentiu lendo...">${escapeHtml(textVal)}</textarea>
     </div>
+
+    <details class="field ai-letter-helper">
+      <summary>✨ Deixar a IA ajudar a escrever (a partir de um áudio)</summary>
+      <div id="ai-helper-body" style="margin-top:10px">
+        <p class="muted mt-0" style="font-size:0.82rem">Verificando se a IA está disponível...</p>
+      </div>
+    </details>
     <div class="field">
       <label>Trecho favorito (opcional)</label>
       <div class="row-between gap-sm">
@@ -471,6 +479,8 @@ export function openReviewModal(userBook, onDone) {
       [reviewEl, quoteEl, pageEl].forEach((el) => el.addEventListener('input', () => { persistDraft(); renderPreview(); }));
       favEl.addEventListener('change', persistDraft);
 
+      setupAiLetterHelper(modal, userBook, reviewEl, () => { persistDraft(); renderPreview(); });
+
       modal.querySelector('#f-cancel').onclick = closeModal;
       const visBtns = modal.querySelectorAll('[data-visibility]');
       const paintVisibility = () => visBtns.forEach((b) => b.classList.toggle('active', (b.dataset.visibility === 'public') === isPublic));
@@ -526,6 +536,86 @@ export function openReviewModal(userBook, onDone) {
         } catch (e) { toast(e.message); }
       };
     },
+  });
+}
+
+// Liga o bloco "✨ Deixar a IA ajudar a escrever" dentro do modal da carta: grava um áudio,
+// manda pro servidor (que fala com o Gemini) e enche o campo de texto com o rascunho.
+function setupAiLetterHelper(modal, userBook, reviewEl, onDraftApplied) {
+  const body = modal.querySelector('#ai-helper-body');
+  if (!body) return;
+
+  checkAiStatus().then((enabled) => {
+    if (!enabled) {
+      body.innerHTML = `<p class="muted mt-0" style="font-size:0.82rem">A ajuda de IA ainda não foi configurada nesse app (falta uma chave da API). Sem problema, é só escrever direto ali em cima.</p>`;
+      return;
+    }
+    if (!isRecordingSupported()) {
+      body.innerHTML = `<p class="muted mt-0" style="font-size:0.82rem">Esse navegador não deixa gravar áudio por aqui — tenta pelo Chrome/Safari do celular.</p>`;
+      return;
+    }
+
+    body.innerHTML = `
+      <p class="muted mt-0" style="font-size:0.82rem">Grava você falando o que achou do livro, sem se preocupar em organizar — a IA transcreve e escreve a carta pra você revisar antes de salvar.</p>
+      <div class="chip-row" style="align-items:center">
+        <button type="button" class="btn btn-soft btn-sm" id="ai-record-btn">🎙️ Gravar</button>
+        <span class="muted" id="ai-record-timer" style="display:none;font-weight:700"></span>
+      </div>
+      <div id="ai-record-preview" style="margin-top:10px"></div>
+    `;
+
+    let recorder = null;
+    let startedAt = 0;
+    let timerInterval = null;
+    const recordBtn = body.querySelector('#ai-record-btn');
+    const timerEl = body.querySelector('#ai-record-timer');
+    const previewEl = body.querySelector('#ai-record-preview');
+
+    recordBtn.onclick = async () => {
+      if (!recorder) {
+        try {
+          recorder = await startRecording();
+        } catch (e) { toast(e.message); return; }
+        startedAt = Date.now();
+        recordBtn.textContent = '⏹️ Parar';
+        timerEl.style.display = 'inline';
+        timerInterval = setInterval(() => {
+          const secs = Math.floor((Date.now() - startedAt) / 1000);
+          timerEl.textContent = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
+        }, 300);
+        return;
+      }
+      const { blob, format } = await recorder.stop();
+      recorder = null;
+      clearInterval(timerInterval);
+      timerEl.style.display = 'none';
+      recordBtn.textContent = '🎙️ Gravar de novo';
+
+      const url = URL.createObjectURL(blob);
+      previewEl.innerHTML = `
+        <audio controls src="${url}" style="width:100%;margin-bottom:8px"></audio>
+        <button type="button" class="btn btn-primary btn-sm" id="ai-generate-btn">✨ Gerar carta com isso</button>
+      `;
+      previewEl.querySelector('#ai-generate-btn').onclick = async () => {
+        const genBtn = previewEl.querySelector('#ai-generate-btn');
+        genBtn.disabled = true;
+        genBtn.textContent = '⏳ Escrevendo (pode levar uns segundos)...';
+        try {
+          const bookId = userBook.book_id || userBook.book?.id;
+          const draft = await draftLetterFromAudio(blob, format, bookId);
+          if (!reviewEl.value.trim() || confirm('Já tem um texto na carta — substituir pelo rascunho da IA?')) {
+            reviewEl.value = draft;
+            onDraftApplied && onDraftApplied();
+          }
+          toast('Rascunho gerado! Dá uma revisada antes de salvar. ✨');
+        } catch (e) {
+          toast(e.message);
+        } finally {
+          genBtn.disabled = false;
+          genBtn.textContent = '✨ Gerar carta com isso';
+        }
+      };
+    };
   });
 }
 

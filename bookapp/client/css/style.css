@@ -380,11 +380,12 @@ textarea { resize: vertical; min-height: 70px; }
 .letter-card.border-solid { border-style: solid; }
 .letter-card.border-none { border: none; }
 .letter-card.border-gold { border: 3px double var(--gold); }
-.letter-style-picker summary { cursor: pointer; font-weight: 700; font-size: 0.85rem; color: var(--plum-dark); list-style: none; }
-.letter-style-picker summary::-webkit-details-marker { display: none; }
-.letter-style-picker summary::before { content: '▸ '; }
-.letter-style-picker[open] summary::before { content: '▾ '; }
-.letter-style-picker[open] summary { margin-bottom: 4px; }
+.letter-style-picker summary, .ai-letter-helper summary { cursor: pointer; font-weight: 700; font-size: 0.85rem; color: var(--plum-dark); list-style: none; }
+.letter-style-picker summary::-webkit-details-marker, .ai-letter-helper summary::-webkit-details-marker { display: none; }
+.letter-style-picker summary::before, .ai-letter-helper summary::before { content: '▸ '; }
+.letter-style-picker[open] summary::before, .ai-letter-helper[open] summary::before { content: '▾ '; }
+.letter-style-picker[open] summary, .ai-letter-helper[open] summary { margin-bottom: 4px; }
+.ai-letter-helper { background: #FBF6FF; border: 1.5px dashed var(--lavender); border-radius: var(--radius-md); padding: 12px 14px; }
 
 /* ============ comentários embaixo da carta (tipo post) ============ */
 .review-comments-block { padding-top: 4px; }
