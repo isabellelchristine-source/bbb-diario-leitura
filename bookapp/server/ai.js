@@ -4,7 +4,7 @@
 // nenhum pacote. (O endpoint compatível com OpenAI só aceita áudio em wav/mp3 — o que o
 // navegador grava é webm/mp4, e só a API nativa aceita esses formatos direto.)
 const GEMINI_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/interactions';
-const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
 
 export const aiEnabled = Boolean(process.env.GEMINI_API_KEY);
 
