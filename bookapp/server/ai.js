@@ -1,11 +1,22 @@
 // ai.js — ajuda de IA pra escrever a carta: manda um áudio (ou texto solto) pro Gemini e
 // pede pra ele organizar isso num texto de carta carinhosa, no formato "Querida [nome]...".
-// Usa o endpoint compatível com OpenAI do Gemini (mais simples de interpretar a resposta
-// do que a API nova "Interactions"), via fetch puro — sem precisar instalar nenhum pacote.
-const GEMINI_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
+// Usa a API nativa do Gemini ("Interactions"), via fetch puro — sem precisar instalar
+// nenhum pacote. (O endpoint compatível com OpenAI só aceita áudio em wav/mp3 — o que o
+// navegador grava é webm/mp4, e só a API nativa aceita esses formatos direto.)
+const GEMINI_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/interactions';
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 
 export const aiEnabled = Boolean(process.env.GEMINI_API_KEY);
+
+// mapeia o formato que o navegador grava pro mime type que a API do Gemini espera.
+const MIME_BY_FORMAT = {
+  webm: 'audio/webm',
+  mp4: 'audio/m4a',
+  m4a: 'audio/m4a',
+  ogg: 'audio/ogg',
+  wav: 'audio/wav',
+  mp3: 'audio/mp3',
+};
 
 function buildPrompt({ bookTitle, bookAuthor, recipientName, authorName }) {
   return (
@@ -23,16 +34,30 @@ function buildPrompt({ bookTitle, bookAuthor, recipientName, authorName }) {
   );
 }
 
+// Acha o texto gerado dentro da resposta da API de Interactions — ele vem dentro de uma
+// lista de "steps" (pode ter mais de um, ex: se o modelo "pensar" em etapas), então
+// procuramos o step de saída e o pedaço de conteúdo do tipo texto.
+function extractOutputText(interaction) {
+  const steps = interaction?.steps || [];
+  for (const step of steps) {
+    if (step.type !== 'model_output') continue;
+    const textPart = (step.content || []).find((c) => c.type === 'text');
+    if (textPart?.text) return textPart.text;
+  }
+  return null;
+}
+
 // context: { bookTitle, bookAuthor, recipientName, authorName }
 // input: { text } OU { audioBase64, format } (format: 'webm' | 'mp3' | 'wav' | 'm4a' | 'ogg' etc.)
 export async function draftLetterWithAI(context, input) {
   if (!aiEnabled) throw new Error('IA não configurada — defina GEMINI_API_KEY nas variáveis de ambiente.');
 
-  const content = [{ type: 'text', text: buildPrompt(context) }];
+  const promptInput = [{ type: 'text', text: buildPrompt(context) }];
   if (input.audioBase64) {
-    content.push({ type: 'input_audio', input_audio: { data: input.audioBase64, format: input.format || 'webm' } });
+    const mimeType = MIME_BY_FORMAT[input.format] || 'audio/webm';
+    promptInput.push({ type: 'audio', data: input.audioBase64, mime_type: mimeType });
   } else if (input.text) {
-    content.push({ type: 'text', text: `Pensamentos soltos:\n${input.text}` });
+    promptInput.push({ type: 'text', text: `Pensamentos soltos:\n${input.text}` });
   } else {
     throw new Error('informe audioBase64 ou text');
   }
@@ -41,12 +66,9 @@ export async function draftLetterWithAI(context, input) {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${process.env.GEMINI_API_KEY}`,
+      'x-goog-api-key': process.env.GEMINI_API_KEY,
     },
-    body: JSON.stringify({
-      model: GEMINI_MODEL,
-      messages: [{ role: 'user', content }],
-    }),
+    body: JSON.stringify({ model: GEMINI_MODEL, input: promptInput }),
   });
 
   if (!res.ok) {
@@ -54,8 +76,11 @@ export async function draftLetterWithAI(context, input) {
     throw new Error(`Gemini respondeu com erro ${res.status}: ${errText.slice(0, 300)}`);
   }
 
-  const json = await res.json();
-  const text = json?.choices?.[0]?.message?.content;
+  const interaction = await res.json();
+  if (interaction.status && interaction.status !== 'completed') {
+    throw new Error(`A IA não terminou de responder (status: ${interaction.status}) — tenta de novo.`);
+  }
+  const text = extractOutputText(interaction);
   if (!text) throw new Error('a IA não devolveu nenhum texto — tenta de novo.');
   return text.trim();
 }
