@@ -315,8 +315,9 @@ const server = http.createServer(async (req, res) => {
       const row = await db.get('SELECT * FROM user_books WHERE id = ?', [ubMatch[1]]);
       if (!row) return sendJson(res, 404, { error: 'não encontrado' });
       if (row.user_id !== user.id) return sendJson(res, 403, { error: 'não é sua estante' });
-      const body = await readBody(req);
-      const fields = ['status', 'current_page', 'start_date', 'finish_date', 'finish_date_precision', 'goal_date', 'rating', 'review_text', 'favorite', 'personal_comment', 'review_public', 'review_page', 'review_quote', 'review_style'];
+      // limite maior aqui porque "canva_url" pode guardar uma imagem/PDF da carta em base64.
+      const body = await readBody(req, 20 * 1024 * 1024);
+      const fields = ['status', 'current_page', 'start_date', 'finish_date', 'finish_date_precision', 'goal_date', 'rating', 'review_text', 'favorite', 'personal_comment', 'review_public', 'review_page', 'review_quote', 'review_style', 'canva_url'];
       const updates = [];
       const values = [];
       for (const f of fields) {
@@ -338,18 +339,19 @@ const server = http.createServer(async (req, res) => {
       updates.push('updated_at = ?'); values.push(nowIso());
       values.push(row.id);
       await db.run(`UPDATE user_books SET ${updates.join(', ')} WHERE id = ?`, values);
-      // se a carta foi apagada (texto ficou vazio), os comentários dela também não fazem
-      // mais sentido — sem isso, ficariam "penduradas" sem nenhuma carta pra pertencer.
-      if (body.review_text === '') {
+      const updated = await db.get('SELECT * FROM user_books WHERE id = ?', [row.id]);
+      // se a carta foi apagada de vez (nem texto nem link do Canva sobraram), os comentários
+      // dela também não fazem mais sentido — sem isso, ficariam "pendurados" sem carta pra pertencer.
+      if (!updated.review_text && !updated.canva_url) {
         await db.run('DELETE FROM review_comments WHERE user_book_id = ?', [row.id]);
       }
-      const updated = await db.get('SELECT * FROM user_books WHERE id = ?', [row.id]);
       const book = await db.get('SELECT * FROM books WHERE id = ?', [updated.book_id]);
 
       // Notifica a amiga só da coisa mais relevante que mudou nessa chamada (nunca mais de
       // uma por PATCH) — carta nova > terminou o livro > progresso, nessa ordem de prioridade.
       const title = book?.title || 'um livro';
-      if (body.review_text && !row.review_text) {
+      const gotNewLetter = (body.review_text && !row.review_text) || (body.canva_url && !row.canva_url);
+      if (gotNewLetter) {
         notifyOthers(user, { title: `${user.name} escreveu uma carta 💌`, body: `Sobre "${title}"`, bookId: updated.book_id, focus: 'review' });
       } else if (body.status === 'lido' && row.status !== 'lido') {
         notifyOthers(user, { title: `${user.name} terminou um livro ✅`, body: `"${title}"`, bookId: updated.book_id });

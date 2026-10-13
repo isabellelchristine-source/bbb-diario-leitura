@@ -78,7 +78,7 @@ export async function buildEvents(otherUserId) {
   for (const ub of ubRows) {
     const book = await db.get('SELECT * FROM books WHERE id = ?', [ub.book_id]);
     let message; let kind = 'status'; let focus = null;
-    if (ub.status === 'lido' && ub.review_text) { message = `${other.name} escreveu uma carta sobre "${book?.title || 'um livro'}"`; kind = 'review'; focus = 'review'; }
+    if (ub.status === 'lido' && (ub.review_text || ub.canva_url)) { message = `${other.name} escreveu uma carta sobre "${book?.title || 'um livro'}"`; kind = 'review'; focus = 'review'; }
     else if (ub.status === 'lido') { message = `${other.name} terminou "${book?.title || 'um livro'}"`; kind = 'finished'; }
     else if (ub.status === 'lendo') { message = `${other.name} atualizou o progresso em "${book?.title || 'um livro'}" (página ${ub.current_page})`; kind = 'progress'; }
     else { message = `${other.name} atualizou "${book?.title || 'um livro'}"`; }

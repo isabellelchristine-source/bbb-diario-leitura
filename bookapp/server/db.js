@@ -194,6 +194,7 @@ export async function initDb() {
   await ensureColumn('user_books', 'review_quote', "TEXT DEFAULT ''");
   await ensureColumn('user_books', 'finish_date_precision', "TEXT DEFAULT 'day'");
   await ensureColumn('user_books', 'review_style', "TEXT DEFAULT ''");
+  await ensureColumn('user_books', 'canva_url', "TEXT DEFAULT ''");
   await ensureColumn('users', 'last_seen_at', 'TEXT');
 
   await db.run('UPDATE users SET last_seen_at = ? WHERE last_seen_at IS NULL', [new Date().toISOString()]);

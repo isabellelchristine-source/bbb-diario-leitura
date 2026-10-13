@@ -4,7 +4,7 @@
 import { api } from '../api.js';
 import { timeAgo, escapeHtml } from '../components.js';
 import { state } from '../state.js';
-import { navigate } from '../router.js';
+import { navigate, getRenderToken } from '../router.js';
 
 const KIND_ICON = {
   journal: '💭',
@@ -17,10 +17,12 @@ const KIND_ICON = {
 };
 
 export async function renderNotifications(view) {
+  const myToken = getRenderToken();
   view.innerHTML = `<p class="muted" style="text-align:center;padding:40px 0">carregando avisos... 🔔</p>`;
 
   const friend = state.allUsers.find((u) => u.id !== state.currentUser.id);
   const { notifications } = await api.get('/notifications');
+  if (getRenderToken() !== myToken) return;
 
   view.innerHTML = `
     <div class="row-between" style="margin-bottom:4px">

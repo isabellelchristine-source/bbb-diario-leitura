@@ -1,7 +1,7 @@
 import { api } from '../api.js';
 import { avatarHtml, bookCoverHtml, shelfCoverHtml, progressHtml, timeAgo, escapeHtml, toast, commentsHtml, journalActionsHtml } from '../components.js';
 import { state } from '../state.js';
-import { navigate } from '../router.js';
+import { navigate, getRenderToken } from '../router.js';
 import { openUpdateProgressModal, openJournalModal, attachCommentHandlers, attachJournalActionHandlers } from '../actions.js';
 
 function spoilerBlocked(entry, myBookMap) {
@@ -60,12 +60,16 @@ function journalEntryHtml(entry, myBookMap, revealed) {
 }
 
 export async function renderHome(view) {
+  const myToken = getRenderToken();
   view.innerHTML = `<p class="muted" style="text-align:center;padding:40px 0">carregando seu feed... 📖</p>`;
 
   const [feed, myBooks] = await Promise.all([
     api.get('/feed'),
     api.get(`/user-books?user_id=${state.currentUser.id}`),
   ]);
+  // Se já saiu dessa aba antes dessas chamadas terminarem, não escreve conteúdo
+  // antigo por cima da tela que a pessoa está vendo agora.
+  if (getRenderToken() !== myToken) return;
 
   const myBookMap = {};
   myBooks.user_books.forEach((ub) => { myBookMap[ub.book_id] = ub; });

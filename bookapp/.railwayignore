@@ -1,0 +1,4 @@
+# Não sobe o banco de dados local pro deploy — a versão de produção mora no volume
+# persistente da nuvem, não deve ser sobrescrita pelos dados de teste do computador.
+server/data/
+.DS_Store

@@ -1,17 +1,19 @@
 import { api } from '../api.js';
 import { avatarHtml, bookCoverHtml, progressHtml, starsHtml, escapeHtml, timeAgo, formatDate } from '../components.js';
 import { state } from '../state.js';
-import { navigate } from '../router.js';
+import { navigate, getRenderToken } from '../router.js';
 import { openEditProfileModal } from '../actions.js';
 import { isPushSupported, getPushStatus, enablePush, disablePush } from '../push.js';
 
 export async function renderProfile(view, username) {
+  const myToken = getRenderToken();
   view.innerHTML = `<p class="muted" style="text-align:center;padding:40px 0">abrindo perfil... 👤</p>`;
 
   const isOwn = username === state.currentUser.username;
   const { user, stats, currently_reading } = await api.get(`/users/${encodeURIComponent(username)}`);
   const { entries: journal } = await api.get(`/journal?user_id=${user.id}&limit=8`);
   const { user_books: finished } = await api.get(`/user-books?user_id=${user.id}&status=lido`);
+  if (getRenderToken() !== myToken) return;
   const reviewed = finished.filter((f) => f.review_text || f.review_hidden).slice(0, 5);
 
   view.innerHTML = `

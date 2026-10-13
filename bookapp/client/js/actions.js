@@ -2,7 +2,7 @@
 import { api } from './api.js';
 import { openModal, closeModal } from './modal.js';
 import {
-  toast, escapeHtml, starsHtml, bookCoverHtml, fileToResizedDataUrl, letterHtml,
+  toast, escapeHtml, starsHtml, bookCoverHtml, fileToResizedDataUrl, fileToDataUrl, letterHtml,
   LETTER_FONT_OPTIONS, LETTER_BG_OPTIONS, LETTER_BORDER_OPTIONS, LETTER_COLOR_OPTIONS,
 } from './components.js';
 import { EMOJIS, STATUS_META, state } from './state.js';
@@ -242,20 +242,47 @@ export function openUpdateProgressModal(userBook, onDone) {
       <button class="btn btn-ghost" id="f-cancel">Cancelar</button>
       <button class="btn btn-primary btn-block" id="f-save">Salvar</button>
     </div>
+    ${userBook.status !== 'lido' ? `
+      <button class="btn btn-soft btn-block" id="f-finish" style="margin-top:10px">🏁 Terminei! Finalizar e escrever a carta 💌</button>
+    ` : ''}
   `, {
     onMount: (modal) => {
       modal.querySelector('#f-cancel').onclick = closeModal;
+
+      // Marca como lido e já emenda direto na carta (texto, áudio com IA ou Canva) — a
+      // carta pode ser cancelada sem problema: o livro continua concluído do mesmo jeito.
+      const finishAndWriteLetter = async (body) => {
+        const { user_book } = await api.patch(`/user-books/${userBook.id}`, body);
+        closeModal();
+        toast('🎉 Livro concluído! Agora conta pra ela o que achou 💌');
+        onDone && onDone(user_book);
+        openReviewModal(user_book, onDone);
+      };
+
       modal.querySelector('#f-save').onclick = async () => {
         const page = Number(modal.querySelector('#f-page').value || 0);
         const body = { current_page: page };
-        if (total && page >= total) body.status = 'lido';
         try {
+          if (total && page >= total && userBook.status !== 'lido') {
+            await finishAndWriteLetter({ ...body, status: 'lido' });
+            return;
+          }
           const { user_book } = await api.patch(`/user-books/${userBook.id}`, body);
           closeModal();
-          toast(body.status === 'lido' ? '🎉 Livro concluído!' : 'Progresso atualizado!');
+          toast('Progresso atualizado!');
           onDone && onDone(user_book);
         } catch (e) { toast(e.message); }
       };
+
+      const finishBtn = modal.querySelector('#f-finish');
+      if (finishBtn) {
+        finishBtn.onclick = async () => {
+          finishBtn.disabled = true;
+          try {
+            await finishAndWriteLetter({ status: 'lido', ...(total ? { current_page: total } : {}) });
+          } catch (e) { finishBtn.disabled = false; toast(e.message); }
+        };
+      }
     },
   });
 }
@@ -386,6 +413,7 @@ export function openReviewModal(userBook, onDone) {
   const favVal = draft ? draft.fav : !!userBook.favorite;
   const savedStyle = (() => { try { return userBook.review_style ? JSON.parse(userBook.review_style) : {}; } catch (e) { return {}; } })();
   const styleState = draft?.style || { font: savedStyle.font || 'serif', bg: savedStyle.bg || 'paper', border: savedStyle.border || 'dashed', color: savedStyle.color };
+  let canvaVal = draft ? draft.canvaUrl : (userBook.canva_url || '');
 
   openModal(`
     <h3>💌 Carta sobre esse livro</h3>
@@ -413,6 +441,19 @@ export function openReviewModal(userBook, onDone) {
       </div>
       <textarea id="f-quote" style="margin-top:8px" placeholder="Cole aqui a frase que você quer guardar desse livro...">${escapeHtml(quoteVal)}</textarea>
     </div>
+
+    <details class="field ai-letter-helper">
+      <summary>🎨 Já fez essa carta no Canva? (opcional)</summary>
+      <div style="margin-top:10px">
+        <p class="muted mt-0" style="font-size:0.82rem">Envie um print (imagem) ou o PDF exportado só daquela página do Canva — fica guardado aqui dentro, sem depender do link continuar existindo. Ou, se preferir, cole o link de visualização.</p>
+        <label class="muted" style="font-weight:700;font-size:0.8rem;display:block;margin-bottom:5px">Enviar imagem ou PDF da carta</label>
+        <input type="file" accept="image/*,application/pdf" id="f-canva-file" />
+        <div id="f-canva-preview" style="margin-top:8px">${canvaVal && canvaVal.startsWith('data:') ? `<p class="muted mt-0" style="font-size:0.8rem">📎 Já tem um arquivo salvo aqui — escolha outro pra substituir.</p>` : ''}</div>
+        <label class="muted" style="font-weight:700;font-size:0.8rem;display:block;margin:10px 0 5px">Ou cole o link do Canva</label>
+        <input id="f-canva-url" placeholder="https://canva.link/..." value="${canvaVal && !canvaVal.startsWith('data:') ? escapeHtml(canvaVal) : ''}" />
+      </div>
+    </details>
+
     <div class="field">
       <label>Quem pode ler essa carta?</label>
       <div class="chip-row">
@@ -474,10 +515,31 @@ export function openReviewModal(userBook, onDone) {
       // (mesmo se a aba fechar ou a janela do BBB cair antes de clicar em Salvar).
       const persistDraft = () => saveDraft(userBook, {
         text: reviewEl.value, quote: quoteEl.value, page: pageEl.value,
-        rating, isPublic, fav: favEl.checked, style: styleState,
+        rating, isPublic, fav: favEl.checked, style: styleState, canvaUrl: canvaVal,
       });
       [reviewEl, quoteEl, pageEl].forEach((el) => el.addEventListener('input', () => { persistDraft(); renderPreview(); }));
       favEl.addEventListener('change', persistDraft);
+
+      const canvaUrlEl = modal.querySelector('#f-canva-url');
+      const canvaFileEl = modal.querySelector('#f-canva-file');
+      const canvaPreviewEl = modal.querySelector('#f-canva-preview');
+      canvaUrlEl.addEventListener('input', () => { canvaVal = canvaUrlEl.value.trim(); persistDraft(); });
+      canvaFileEl.addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        try {
+          if (file.type === 'application/pdf') {
+            canvaVal = await fileToDataUrl(file);
+            canvaPreviewEl.innerHTML = `<p class="muted mt-0" style="font-size:0.8rem">📄 PDF selecionado: ${escapeHtml(file.name)}</p>`;
+          } else {
+            canvaVal = await fileToResizedDataUrl(file, 1000, 0.85);
+            canvaPreviewEl.innerHTML = `<img src="${canvaVal}" style="width:120px;border-radius:10px;margin-top:4px;box-shadow:var(--shadow-card)"/>`;
+          }
+          canvaUrlEl.value = '';
+          canvaUrlEl.disabled = true;
+          persistDraft();
+        } catch (err) { toast(err.message); }
+      });
 
       setupAiLetterHelper(modal, userBook, reviewEl, () => { persistDraft(); renderPreview(); });
 
@@ -528,6 +590,7 @@ export function openReviewModal(userBook, onDone) {
             review_public: isPublic ? 1 : 0,
             favorite: favEl.checked ? 1 : 0,
             review_style: JSON.stringify(styleState),
+            canva_url: canvaVal,
           });
           clearDraft(userBook);
           closeModal();
@@ -623,7 +686,7 @@ export async function deleteReview(userBook, onDone) {
   if (!confirm('Excluir sua carta desse livro? A nota e o favorito também vão ser apagados.')) return;
   try {
     await api.patch(`/user-books/${userBook.id}`, {
-      review_text: '', review_quote: '', review_page: null, review_style: '', rating: null, favorite: 0,
+      review_text: '', review_quote: '', review_page: null, review_style: '', canva_url: '', rating: null, favorite: 0,
     });
     clearDraft(userBook);
     toast('Carta excluída.');

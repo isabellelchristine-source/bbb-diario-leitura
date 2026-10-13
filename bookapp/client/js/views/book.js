@@ -1,7 +1,7 @@
 import { api } from '../api.js';
 import { bookCoverHtml, progressHtml, starsHtml, escapeHtml, formatDate, timeAgo, toast, avatarHtml, letterHtml, commentsHtml, journalActionsHtml, reviewCommentsHtml } from '../components.js';
 import { state, STATUS_META } from '../state.js';
-import { navigate } from '../router.js';
+import { navigate, getRenderToken } from '../router.js';
 import {
   openUpdateProgressModal, openJournalModal, openReviewModal, openAddCoverModal, openEditDateModal, openEditBookModal,
   attachCommentHandlers, attachJournalActionHandlers, attachReviewCommentHandlers, deleteReview,
@@ -13,6 +13,7 @@ function spoilerBlocked(entry, myPage, iAmReadingIt) {
 }
 
 export async function renderBook(view, bookId, focus) {
+  const myToken = getRenderToken();
   view.innerHTML = `<p class="muted" style="text-align:center;padding:40px 0">abrindo o livro... 📖</p>`;
 
   const { book } = await api.get(`/books/${bookId}`);
@@ -33,8 +34,9 @@ export async function renderBook(view, bookId, focus) {
 
   let myReviewComments = [];
   let friendReviewComments = [];
-  if (myUb && myUb.review_text) myReviewComments = (await api.get(`/review-comments?user_book_id=${myUb.id}`)).comments;
-  if (friendUb && friendUb.review_text) friendReviewComments = (await api.get(`/review-comments?user_book_id=${friendUb.id}`)).comments;
+  if (myUb && (myUb.review_text || myUb.canva_url)) myReviewComments = (await api.get(`/review-comments?user_book_id=${myUb.id}`)).comments;
+  if (friendUb && (friendUb.review_text || friendUb.canva_url)) friendReviewComments = (await api.get(`/review-comments?user_book_id=${friendUb.id}`)).comments;
+  if (getRenderToken() !== myToken) return;
 
   const bothReadingSame = myUb && friendUb && myUb.status === 'lendo' && friendUb.status === 'lendo';
 
@@ -88,7 +90,7 @@ export async function renderBook(view, bookId, focus) {
       <div class="modal-actions" style="margin: 10px 0 4px">
         ${myUb.status === 'lendo' ? `<button class="btn btn-soft btn-sm" id="update-progress">Atualizar progresso</button>` : ''}
         ${myUb.status === 'lendo' ? `<button class="btn btn-soft btn-sm" id="add-journal">💭 O que você acha?</button>` : ''}
-        ${myUb.status === 'lido' ? `<button class="btn btn-soft btn-sm" id="add-review">💌 ${myUb.review_text ? 'Editar' : 'Escrever'} carta</button>` : ''}
+        ${myUb.status === 'lido' ? `<button class="btn btn-soft btn-sm" id="add-review">💌 ${myUb.review_text || myUb.canva_url ? 'Editar' : 'Escrever'} carta</button>` : ''}
       </div>
       <div class="card">
         <div class="row-between">
@@ -109,7 +111,7 @@ export async function renderBook(view, bookId, focus) {
         <hr class="divider"/>
         <button class="link-btn" id="remove-book" style="color:#D97878">Remover da estante</button>
       </div>
-      ${myUb.status === 'lido' && myUb.review_text ? `
+      ${myUb.status === 'lido' && (myUb.review_text || myUb.canva_url) ? `
         <div data-focus-anchor="review">
           <div class="row-between">
             <div class="section-title mb-0">💌 Sua carta <span class="letter-visibility-badge ${myUb.review_public ? 'pill sage' : 'pill'}">${myUb.review_public ? '🌍 pública' : '🔒 privada'}</span></div>
@@ -124,8 +126,8 @@ export async function renderBook(view, bookId, focus) {
     ${friendUb && friendUb.status === 'lido' ? `
       <div data-focus-anchor="review">
         <div class="section-title">💌 Carta de ${escapeHtml(friend.name)}</div>
-        ${friendUb.review_text || friendUb.review_hidden ? letterHtml(friendUb, friend.name, state.currentUser.name) : `<p class="muted">${escapeHtml(friend.name)} ainda não escreveu a carta desse livro.</p>`}
-        ${friendUb.review_text ? reviewCommentsHtml(friendUb.id, friendReviewComments, state.currentUser.id) : ''}
+        ${friendUb.review_text || friendUb.canva_url || friendUb.review_hidden ? letterHtml(friendUb, friend.name, state.currentUser.name) : `<p class="muted">${escapeHtml(friend.name)} ainda não escreveu a carta desse livro.</p>`}
+        ${friendUb.review_text || friendUb.canva_url ? reviewCommentsHtml(friendUb.id, friendReviewComments, state.currentUser.id) : ''}
       </div>
     ` : ''}
 

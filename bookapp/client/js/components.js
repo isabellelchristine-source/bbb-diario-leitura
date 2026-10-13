@@ -29,6 +29,17 @@ export function fileToResizedDataUrl(file, maxDim = 600, quality = 0.78) {
   });
 }
 
+// Lê um arquivo qualquer (ex: PDF) e devolve como data URL, sem redimensionar nada —
+// usado pra guardar um PDF pequeno (ex: 1-2 páginas exportadas do Canva) direto no banco.
+export function fileToDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('Não consegui ler esse arquivo.'));
+    reader.onload = () => resolve(String(reader.result));
+    reader.readAsDataURL(file);
+  });
+}
+
 export function escapeHtml(str) {
   if (str === null || str === undefined) return '';
   return String(str)
@@ -237,7 +248,27 @@ export function letterHtml(ub, authorName, recipientName) {
       <div class="letter-locked-inner">🔒<p class="muted mt-0 mb-0">${escapeHtml(authorName)} guardou essa carta só para ela por enquanto.</p></div>
     </div>`;
   }
-  if (!ub.review_text) return '';
+  if (!ub.review_text && !ub.canva_url) return '';
+
+  // Carta feita no Canva — se for uma imagem enviada direto (print/foto da página), mostra
+  // ela mesma aqui dentro, preservando o design original. Se for um PDF enviado ou um link
+  // externo do Canva, mostra um botão pra abrir. Se também tiver um textinho escrito no app,
+  // mostra os dois juntos.
+  let canvaBlock = '';
+  if (ub.canva_url) {
+    const isImage = ub.canva_url.startsWith('data:image/');
+    const isPdf = ub.canva_url.startsWith('data:application/pdf');
+    canvaBlock = `
+      <div class="letter-card letter-canva">
+        <div class="letter-canva-icon">🎨</div>
+        ${isImage
+          ? `<img src="${escapeHtml(ub.canva_url)}" alt="Carta feita no Canva" style="width:100%;border-radius:var(--radius-md);box-shadow:var(--shadow-card)"/>`
+          : `
+            <p class="muted mt-0" style="font-size:0.88rem">Essa carta foi feita no Canva, com todo o capricho de design.</p>
+            <a class="btn btn-primary btn-block" href="${escapeHtml(ub.canva_url)}" target="_blank" rel="noopener">${isPdf ? '📄 Abrir PDF da carta' : '💌 Abrir carta no Canva'}</a>`}
+      </div>`;
+  }
+  if (!ub.review_text) return canvaBlock;
 
   const style = parseLetterStyle(ub.review_style);
   const font = LETTER_FONT_OPTIONS[style.font] || LETTER_FONT_OPTIONS.serif;
@@ -253,6 +284,7 @@ export function letterHtml(ub, authorName, recipientName) {
   ].filter(Boolean).join(';');
 
   return `
+    ${canvaBlock}
     <div class="letter-card${bgClass}${borderClass}">
       <div class="letter-greeting"${accentStyle}>Querida ${escapeHtml(recipientName)}...</div>
       <div class="letter-body" style="${bodyStyle}">${escapeHtml(ub.review_text).replace(/\n/g, '<br/>')}</div>

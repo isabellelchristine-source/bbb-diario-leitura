@@ -62,18 +62,26 @@ export async function draftLetterWithAI(context, input) {
     throw new Error('informe audioBase64 ou text');
   }
 
-  const res = await fetch(GEMINI_ENDPOINT, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-goog-api-key': process.env.GEMINI_API_KEY,
-    },
-    body: JSON.stringify({ model: GEMINI_MODEL, input: promptInput }),
-  });
-
-  if (!res.ok) {
-    const errText = await res.text().catch(() => '');
-    throw new Error(`Gemini respondeu com erro ${res.status}: ${errText.slice(0, 300)}`);
+  // O Gemini às vezes devolve 503 ("alta demanda") por uns instantes só — tenta de novo
+  // sozinho um par de vezes antes de desistir, pra não precisar a pessoa clicar de novo.
+  const MAX_ATTEMPTS = 3;
+  let res; let lastErrText = '';
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    res = await fetch(GEMINI_ENDPOINT, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': process.env.GEMINI_API_KEY,
+      },
+      body: JSON.stringify({ model: GEMINI_MODEL, input: promptInput }),
+    });
+    if (res.ok) break;
+    lastErrText = await res.text().catch(() => '');
+    const retriable = res.status === 503 || res.status === 429;
+    if (!retriable || attempt === MAX_ATTEMPTS) {
+      throw new Error(`Gemini respondeu com erro ${res.status}: ${lastErrText.slice(0, 300)}`);
+    }
+    await new Promise((r) => setTimeout(r, 1500 * attempt));
   }
 
   const interaction = await res.json();
